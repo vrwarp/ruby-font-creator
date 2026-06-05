@@ -1,0 +1,541 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pinyin Typography Lab — Font Design Companion</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@400;500;600;700;800&family=Noto+Serif+SC:wght@600;700;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <!-- Font Awesome -->
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+    />
+    <!-- opentype.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/opentype.js@1.3.4/dist/opentype.min.js"></script>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <!-- Header -->
+    <header class="app-header">
+      <div class="header-content">
+        <div class="logo-area">
+          <div class="logo-badge">Pÿ</div>
+          <div>
+            <h1 class="app-title">
+              Pinyin Typography Lab
+              <span class="version-tag">V5.0 Visual Designer</span>
+            </h1>
+            <p class="app-subtitle">
+              Tune horizontal character scaling, vertical offsets, tracking
+              compensation, and weight compensation dynamically.
+            </p>
+          </div>
+        </div>
+        <div class="header-actions">
+          <button
+            id="btn-theme-toggle"
+            class="btn btn-secondary"
+            title="Toggle theme mode"
+          >
+            <i class="fa-solid fa-moon"></i>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Grid -->
+    <main class="app-main">
+      <!-- Sidebar: Controls -->
+      <section class="control-panel scrollable-panel">
+        <!-- Section 1: Choose Syllable -->
+        <div class="panel-section">
+          <h2 class="section-title">
+            <span class="step-num">1</span>
+            Choose a Test Syllable
+          </h2>
+          <div id="syllable-presets" class="preset-grid">
+            <!-- Dynamically populated -->
+          </div>
+          <div class="custom-input-group">
+            <div class="input-field">
+              <label for="input-custom-hanzi">Hanzi</label>
+              <input
+                type="text"
+                id="input-custom-hanzi"
+                maxlength="1"
+                placeholder="字"
+              />
+            </div>
+            <div class="input-field">
+              <label for="input-custom-pinyin">Pinyin</label>
+              <input type="text" id="input-custom-pinyin" placeholder="zì" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 2: Layout & Alignment -->
+        <div class="panel-section">
+          <h2 class="section-title">
+            <span class="step-num">2</span>
+            Layout & Alignment
+          </h2>
+          <div class="control-group">
+            <label>Pinyin Placement</label>
+            <div class="segmented-control" id="placement-control">
+              <button class="segment-btn active" data-placement="top">
+                Above Glyph
+              </button>
+              <button class="segment-btn" data-placement="bottom">
+                Below Glyph
+              </button>
+            </div>
+          </div>
+          <div class="control-group flex-row-between">
+            <label for="toggle-guides">Show Guides & Grids</label>
+            <label class="switch">
+              <input type="checkbox" id="toggle-guides" checked />
+              <span class="slider round"></span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Section 3: Micro-Typography Tuning -->
+        <div class="panel-section">
+          <div class="section-header">
+            <h2 class="section-title">
+              <span class="step-num">3</span>
+              Micro-Typography Tuning
+            </h2>
+            <button id="btn-reset-controls" class="reset-link-btn">
+              Reset Controls
+            </button>
+          </div>
+
+          <!-- Squeeze Strategy -->
+          <div class="control-group">
+            <label>Squeeze Strategy Application</label>
+            <div class="segmented-control" id="strategy-control">
+              <button class="segment-btn active" data-strategy="smart">
+                Smart (≥5 letters)
+              </button>
+              <button class="segment-btn" data-strategy="proportional">
+                Proportional
+              </button>
+              <button class="segment-btn" data-strategy="global">
+                Global All
+              </button>
+            </div>
+          </div>
+
+          <!-- Pinyin Vertical Offset -->
+          <div class="control-group range-control">
+            <div class="range-labels">
+              <span class="range-name"
+                ><i class="fa-solid fa-arrows-up-down"></i> Vertical
+                Offset</span
+              >
+              <span class="range-value" id="val-vertical-offset">4px</span>
+            </div>
+            <input
+              type="range"
+              id="range-vertical-offset"
+              min="-20"
+              max="60"
+              step="1"
+              value="4"
+            />
+            <div class="range-limits">
+              <span>Tight (-20px)</span>
+              <span>Default (4px)</span>
+              <span>Spaced (60px)</span>
+            </div>
+          </div>
+
+          <!-- Optical Width Squeeze -->
+          <div class="control-group range-control">
+            <div class="range-labels">
+              <span class="range-name"
+                ><i class="fa-solid fa-arrows-left-right-to-line"></i> Optical
+                Squeeze</span
+              >
+              <span class="range-value" id="val-optical-squeeze">65%</span>
+            </div>
+            <input
+              type="range"
+              id="range-optical-squeeze"
+              min="30"
+              max="120"
+              step="1"
+              value="65"
+            />
+            <div class="range-limits">
+              <span>Narrow (30%)</span>
+              <span>Normal (100%)</span>
+              <span>Wide (120%)</span>
+            </div>
+          </div>
+
+          <!-- Stroke Weight Compensation -->
+          <div class="control-group range-control">
+            <div class="range-labels">
+              <span class="range-name"
+                ><i class="fa-solid fa-bold"></i> Weight Compensation</span
+              >
+              <span class="range-value" id="val-stroke-weight">500</span>
+            </div>
+            <input
+              type="range"
+              id="range-stroke-weight"
+              min="100"
+              max="900"
+              step="50"
+              value="500"
+            />
+            <div class="range-limits">
+              <span>Light (100)</span>
+              <span>Regular (400)</span>
+              <span>Black (900)</span>
+            </div>
+          </div>
+
+          <!-- Letter Tracking (Kern) -->
+          <div class="control-group range-control">
+            <div class="range-labels">
+              <span class="range-name"
+                ><i class="fa-solid fa-left-right"></i> Letter Tracking
+                (Kern)</span
+              >
+              <span class="range-value" id="val-letter-tracking">-0.040em</span>
+            </div>
+            <input
+              type="range"
+              id="range-letter-tracking"
+              min="-0.250"
+              max="0.250"
+              step="0.005"
+              value="-0.04"
+            />
+            <div class="range-limits">
+              <span>Tight (-0.25em)</span>
+              <span>0.00em</span>
+              <span>Loose (0.25em)</span>
+            </div>
+          </div>
+
+          <!-- Base Sizes -->
+          <div class="control-group range-control border-top-divider">
+            <div class="range-labels">
+              <span class="range-name">Pinyin Base Size</span>
+              <span class="range-value" id="val-pinyin-size">13px</span>
+            </div>
+            <input
+              type="range"
+              id="range-pinyin-size"
+              min="8"
+              max="24"
+              step="1"
+              value="13"
+            />
+          </div>
+
+          <div class="control-group range-control">
+            <div class="range-labels">
+              <span class="range-name">Hanzi Grid Size</span>
+              <span class="range-value" id="val-hanzi-size">48px</span>
+            </div>
+            <input
+              type="range"
+              id="range-hanzi-size"
+              min="36"
+              max="80"
+              step="1"
+              value="48"
+            />
+          </div>
+        </div>
+
+        <!-- Section 4: Build & Download Font -->
+        <div class="panel-section">
+          <h2 class="section-title">
+            <span class="step-num">4</span>
+            Build & Download Font
+          </h2>
+          <div class="control-group">
+            <label for="input-font-name">Font Name</label>
+            <input
+              type="text"
+              id="input-font-name"
+              value="ruby-font-creator"
+              placeholder="ruby-font-creator"
+            />
+          </div>
+          <button id="btn-build-font" class="btn btn-primary">
+            <i class="fa-solid fa-gears"></i> Build Font Assets
+          </button>
+
+          <div
+            id="build-status-container"
+            class="build-status-card"
+            style="display: none"
+          >
+            <div class="build-status-header">
+              <span id="build-status-badge" class="badge">Idle</span>
+              <span
+                id="build-status-time"
+                class="font-mono text-[10px] text-slate-500"
+              ></span>
+            </div>
+            <pre id="build-logs" class="build-logs-box"></pre>
+            <div
+              id="build-download-links"
+              class="build-downloads"
+              style="display: none"
+            >
+              <a
+                id="link-download-ttf"
+                href="#"
+                class="btn btn-small btn-primary"
+                download
+                ><i class="fa-solid fa-download"></i> TTF</a
+              >
+              <a
+                id="link-download-woff2"
+                href="#"
+                class="btn btn-small btn-secondary"
+                download
+                ><i class="fa-solid fa-download"></i> WOFF2</a
+              >
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Content Area: Simulation & Outputs -->
+      <section class="simulation-area scrollable-panel">
+        <!-- Sandbox View Mode Tabs -->
+        <div class="view-tabs">
+          <button class="tab-btn active" data-tab="worship">
+            <i class="fa-solid fa-church"></i> Worship Slide Simulator
+          </button>
+          <button class="tab-btn" data-tab="textbook">
+            <i class="fa-solid fa-book-open"></i> Textbook Simulator
+          </button>
+          <button class="tab-btn" data-tab="sandbox">
+            <i class="fa-solid fa-flask"></i> Interactive Vector Sandbox
+          </button>
+        </div>
+
+        <!-- Tab Content: Worship Slide -->
+        <div class="tab-pane active" id="pane-worship">
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <h3>Amazing Grace Worship Slide Engine</h3>
+                <p class="card-subtitle">
+                  Live projection simulator configured to solve baseline
+                  vertical spacing limits.
+                </p>
+              </div>
+              <div class="card-header-actions">
+                <div class="selector-group">
+                  <span>Theme:</span>
+                  <select id="worship-theme-select">
+                    <!-- Dynamically populated -->
+                  </select>
+                </div>
+                <div class="selector-group">
+                  <span>Ratio:</span>
+                  <button
+                    id="btn-worship-ratio"
+                    class="btn btn-small btn-secondary"
+                  >
+                    16:9
+                  </button>
+                </div>
+                <button id="btn-present" class="btn btn-small btn-primary">
+                  <i class="fa-solid fa-expand"></i> Present
+                </button>
+              </div>
+            </div>
+            <div class="card-body">
+              <div id="worship-viewport-container" class="viewport-outer">
+                <div id="worship-viewport" class="viewport-canvas theme-navy">
+                  <div class="viewport-vignette"></div>
+                  <div class="guide-border corner-tl"></div>
+                  <div class="guide-border corner-tr"></div>
+                  <div class="guide-border corner-bl"></div>
+                  <div class="guide-border corner-br"></div>
+                  <div class="slide-header">Amazing Grace • 奇异恩典</div>
+                  <div class="slide-content" id="worship-slide-content">
+                    <!-- Syllables populated dynamically -->
+                  </div>
+                  <div class="slide-footer" id="worship-slide-english"></div>
+
+                  <!-- Slide Navigation Buttons -->
+                  <button id="btn-prev-slide" class="nav-slide-btn nav-left">
+                    <i class="fa-solid fa-chevron-left"></i>
+                  </button>
+                  <button id="btn-next-slide" class="nav-slide-btn nav-right">
+                    <i class="fa-solid fa-chevron-right"></i>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Slide controls footer -->
+              <div class="slide-controls-footer">
+                <div class="slide-indicator" id="worship-slide-dots">
+                  <!-- Dots populated dynamically -->
+                </div>
+                <div class="nav-instructions">
+                  Slide <span id="current-slide-num">1</span> of
+                  <span id="total-slide-num">3</span> • Press <kbd>Space</kbd> /
+                  <kbd>⇄ Keys</kbd>
+                </div>
+              </div>
+
+              <div class="extra-controls-grid">
+                <div class="control-group range-control">
+                  <label>Worship Large Print Scale</label>
+                  <div class="flex-align-center">
+                    <input
+                      type="range"
+                      id="range-worship-scale"
+                      min="0.8"
+                      max="1.5"
+                      step="0.05"
+                      value="1.0"
+                    />
+                    <span class="range-val-badge" id="val-worship-scale"
+                      >100%</span
+                    >
+                  </div>
+                </div>
+                <div class="flex-row-between">
+                  <label>English Subtitle</label>
+                  <button
+                    id="btn-toggle-subtitle"
+                    class="btn btn-small btn-primary"
+                  >
+                    VISIBLE
+                  </button>
+                </div>
+                <div class="info-pill">
+                  <div class="info-title">Active Strategy</div>
+                  <div class="info-value" id="active-strategy-label">
+                    Smart Squeeze
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab Content: Textbook -->
+        <div class="tab-pane" id="pane-textbook">
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <h3>Scale-Responsive Textbook Layout</h3>
+                <p class="card-subtitle">
+                  Testing grid containment for adjacent multi-vowel syllables.
+                </p>
+              </div>
+              <div class="card-header-actions" id="textbook-book-selector">
+                <!-- Dynamically populated buttons -->
+              </div>
+            </div>
+            <div class="card-body">
+              <div class="textbook-container">
+                <div class="textbook-header">
+                  <h4 id="textbook-poem-title">春晓 (Spring Dawn)</h4>
+                  <p id="textbook-poem-author">Meng Haoran (孟浩然)</p>
+                </div>
+                <div class="textbook-pages" id="textbook-content">
+                  <!-- Dynamically populated character grids -->
+                </div>
+              </div>
+
+              <div class="textbook-footer-card">
+                <div class="metric-guard-info">
+                  <strong>Squeeze Sizing Metric Guard:</strong>
+                  <p id="metric-guard-text">
+                    At 65% squeeze and -0.040em tracking, the longest syllable
+                    spans approx 24px.
+                  </p>
+                </div>
+                <div id="metric-guard-badge" class="badge badge-success">
+                  Perfect Container Fit!
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab Content: Vector Sandbox -->
+        <div class="tab-pane" id="pane-sandbox">
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <h3>Interactive Vector Sandbox</h3>
+                <p class="card-subtitle">
+                  True OTF/TTF Path rendering simulation using
+                  DroidSansFallback.ttf via opentype.js
+                </p>
+              </div>
+              <div class="card-header-actions">
+                <button id="btn-export-svg" class="btn btn-small btn-primary">
+                  <i class="fa-solid fa-download"></i> Export SVG
+                </button>
+              </div>
+            </div>
+            <div class="card-body vector-sandbox-body">
+              <div class="vector-preview-box">
+                <div class="vector-svg-container" id="svg-preview-container">
+                  <!-- The live rendering SVG will go here -->
+                </div>
+                <div class="font-loading-status" id="font-loading-banner">
+                  <i class="fa-solid fa-circle-notch fa-spin"></i> Loading
+                  DroidSansFallbackFull.ttf...
+                </div>
+              </div>
+
+              <!-- Configuration Exporter -->
+              <div class="config-exporter-box">
+                <div class="config-header">
+                  <h4>Generated CLI Config File (`config.ts`)</h4>
+                  <button
+                    id="btn-copy-config"
+                    class="btn btn-small btn-secondary"
+                  >
+                    <i class="fa-solid fa-copy"></i> Copy
+                  </button>
+                </div>
+                <pre class="code-block"><code id="code-config-output">
+// Loading...
+              </code></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Presentation Overlay -->
+    <div id="presentation-overlay" class="overlay-fullscreen">
+      <div class="overlay-content" id="presentation-content">
+        <!-- Fullscreen presentation slides -->
+      </div>
+      <button id="btn-exit-presentation" class="exit-overlay-btn">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </div>
+
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

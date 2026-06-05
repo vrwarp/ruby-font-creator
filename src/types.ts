@@ -33,6 +33,10 @@ export interface LayoutAttributes {
   fontSize: number
   anchor: string
   attributes: Record<string, string>
+  squeeze?: number
+  tracking?: number
+  weight?: number
+  strategy?: string
 }
 
 /** Build configuration for font generation */

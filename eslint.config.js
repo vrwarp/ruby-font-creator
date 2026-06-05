@@ -20,6 +20,19 @@ export default tseslint.config(
     },
   },
   {
-    ignores: ['build/', 'dist/', 'node_modules/'],
+    files: ['frontend/**/*.ts'],
+    languageOptions: {
+      globals: { ...globals.browser },
+    },
+  },
+  {
+    ignores: [
+      'build/',
+      'dist/',
+      'dist-web/',
+      'node_modules/',
+      'scratch/',
+      '**/*.timestamp-*',
+    ],
   },
 )

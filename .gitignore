@@ -20,7 +20,9 @@ logs
 node_modules
 
 dist/
+dist-web/
 coverage/
 .env
 .DS_Store
 *.tsbuildinfo
+src/config/web-temp.ts
