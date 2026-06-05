@@ -1,8 +1,0 @@
-language: node_js
-node_js:
-  - "8"
-cache: yarn
-git:
-  submodules: false
-before_script:
-    - bash ./test/fetch-fonts.bash
