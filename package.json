@@ -13,6 +13,7 @@
   ],
   "scripts": {
     "build:font": "tsx ./index.ts",
+    "build:gsub": "python3 scripts/inject-gsub.py build/ruby-font-creator.ttf build/polyphonic-map.json",
     "build": "tsc",
     "generate-data": "tsx data/chinese/index.ts",
     "test": "vitest run",

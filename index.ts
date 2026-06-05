@@ -5,7 +5,7 @@ if (cheerio && !cheerio.default) {
   cheerio.default = cheerio
 }
 
-import { readFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import _svgtofont from 'svgtofont'
 const svgtofont = ((_svgtofont as any).default || _svgtofont) as (
@@ -15,6 +15,10 @@ import yargs from 'yargs'
 import { hideBin } from 'yargs/helpers'
 
 import helpers from './src/helpers.js'
+import {
+  getAlternateGlyphEntries,
+  buildPolyphonicMap,
+} from './src/polyphonic.js'
 import ruby from './src/ruby.js'
 import svg from './src/svg.js'
 import type { BuildConfig, GlyphEntry, CliArguments } from './src/types.js'
@@ -63,10 +67,19 @@ async function start(cliArguments: CliArguments): Promise<void> {
 
   const rawData = await readFile(config.dataSource, 'utf-8')
   const data: GlyphEntry[] = JSON.parse(rawData)
+  const allEntries = [...data, ...getAlternateGlyphEntries()]
 
   await helpers.prepare(config)
-  await generateSvg(data, config)
+  await generateSvg(allEntries, config)
   await buildFont(config)
+
+  const polyMap = buildPolyphonicMap(data)
+  const distDir = path.dirname(config.destFilename)
+  await writeFile(
+    path.join(distDir, 'polyphonic-map.json'),
+    JSON.stringify(polyMap, null, 2),
+  )
+  console.log(`wrote: ${path.join(distDir, 'polyphonic-map.json')}`)
 }
 
 const argv = yargs(hideBin(process.argv))
