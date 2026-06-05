@@ -1,0 +1,62 @@
+[
+  {
+    "codepoint": "U+5167",
+    "ruby": "nèi",
+    "glyph": "內"
+  },
+  {
+    "codepoint": "U+5728",
+    "ruby": "zài",
+    "glyph": "在"
+  },
+  {
+    "codepoint": "U+5FC5",
+    "ruby": "bì",
+    "glyph": "必"
+  },
+  {
+    "codepoint": "U+6211",
+    "ruby": "wǒ",
+    "glyph": "我"
+  },
+  {
+    "codepoint": "U+6D32",
+    "ruby": "zhōu",
+    "glyph": "洲"
+  },
+  {
+    "codepoint": "U+6EFF",
+    "ruby": "mǎn",
+    "glyph": "滿"
+  },
+  {
+    "codepoint": "U+7684",
+    "ruby": "de",
+    "glyph": "的"
+  },
+  {
+    "codepoint": "U+79C9",
+    "ruby": "bǐng",
+    "glyph": "秉"
+  },
+  {
+    "codepoint": "U+8521",
+    "ruby": "cài",
+    "glyph": "蔡"
+  },
+  {
+    "codepoint": "U+884C",
+    "ruby": "xíng",
+    "glyph": "行"
+  },
+  {
+    "codepoint": "U+9280",
+    "ruby": "yín",
+    "glyph": "銀"
+  },
+  {
+    "codepoint": "U+E000",
+    "glyph": "行",
+    "ruby": "háng"
+  }
+]

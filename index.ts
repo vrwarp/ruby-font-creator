@@ -65,6 +65,8 @@ async function buildFont(config: BuildConfig): Promise<void> {
     svgicons2svgfont: {
       fontHeight: 1000,
       normalize: true,
+      fixedWidth: true,
+      centerHorizontally: true,
     },
     website: null,
   })

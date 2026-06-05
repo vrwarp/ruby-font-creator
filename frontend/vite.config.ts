@@ -3,8 +3,14 @@ import { exec } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import TextToSVG from 'text-to-svg'
-import ttf2woff2 from 'ttf2woff2'
+import { createRequire } from 'node:module'
+const require = createRequire(import.meta.url)
+const ttf2woff2 = require('ttf2woff2')
 import ruby from '../src/ruby.js'
+import {
+  getAlternateGlyphEntries,
+  POLYPHONIC_ENTRIES,
+} from '../src/polyphonic.js'
 
 export default defineConfig({
   root: './',
@@ -106,6 +112,7 @@ export default defineConfig({
                   strategy,
                   characterWidth,
                   enablePolyphonic,
+                  text,
                 } = JSON.parse(body)
 
                 const sanitizedFontName = (fontName || 'ruby-font').replace(
@@ -116,6 +123,51 @@ export default defineConfig({
                 const calculatedPinyinFontSize = Math.round(
                   56 * (pinyinSize / hanziSize),
                 )
+
+                let dataSourcePath = '../data.json'
+                if (sanitizedFontName === 'live' && typeof text === 'string') {
+                  const uniqueChars = new Set(text.split(''))
+                  const baseDataPath = path.resolve(
+                    process.cwd(),
+                    'src/data.json',
+                  )
+                  const rawData = fs.readFileSync(baseDataPath, 'utf-8')
+                  const allData = JSON.parse(rawData)
+                  const filteredData = allData.filter((entry: any) =>
+                    uniqueChars.has(entry.glyph),
+                  )
+
+                  if (enablePolyphonic) {
+                    const alternates = getAlternateGlyphEntries()
+                    const polyGlyphs = new Set(
+                      POLYPHONIC_ENTRIES.map((p) => p.glyph),
+                    )
+                    const activePolyGlyphs = [...uniqueChars].filter((c) =>
+                      polyGlyphs.has(c),
+                    )
+                    const activeAlternates = alternates.filter((alt) => {
+                      const parentEntry = POLYPHONIC_ENTRIES.find((p) =>
+                        p.alternates.some((a) => a.codepoint === alt.codepoint),
+                      )
+                      return (
+                        parentEntry &&
+                        activePolyGlyphs.includes(parentEntry.glyph)
+                      )
+                    })
+                    filteredData.push(...activeAlternates)
+                  }
+
+                  const liveDataPath = path.resolve(
+                    process.cwd(),
+                    'src/config/live-data.json',
+                  )
+                  fs.writeFileSync(
+                    liveDataPath,
+                    JSON.stringify(filteredData, null, 2),
+                    'utf-8',
+                  )
+                  dataSourcePath = './live-data.json'
+                }
 
                 const configPath = path.resolve(
                   process.cwd(),
@@ -128,7 +180,7 @@ const projectRoot = import.meta.dirname
 
 const config: BuildConfig = {
   canvas: { width: ${characterWidth || 80}, height: 80 },
-  dataSource: path.resolve(projectRoot, '../data.json'),
+  dataSource: path.resolve(projectRoot, '${dataSourcePath}'),
   get destFilename() {
     return path.resolve(projectRoot, \`../../build/\${this.fontName}\`)
   },
@@ -144,16 +196,16 @@ const config: BuildConfig = {
     return {
       base: {
         x: this.canvas.width / 2,
-        y: ${placement === 'top' ? 'this.canvas.height + 12' : '56'},
+        y: ${placement === 'top' ? 'this.canvas.height + 12' : '-4'},
         fontSize: 56,
-        anchor: 'bottom center',
+        anchor: '${placement === 'top' ? 'bottom center' : 'top center'}',
         attributes: { fill: 'black', stroke: 'black', id: 'glyph' }
       },
       annotation: {
         x: this.canvas.width / 2,
         y: ${placement === 'top' ? `-4 - ${verticalOffset}` : `this.canvas.height + 12 + ${verticalOffset}`},
         fontSize: ${calculatedPinyinFontSize},
-        anchor: 'top center',
+        anchor: '${placement === 'top' ? 'top center' : 'bottom center'}',
         attributes: {
           fill: 'black',
           stroke: 'black',

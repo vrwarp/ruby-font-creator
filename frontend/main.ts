@@ -994,7 +994,9 @@ function setupEventListeners() {
 
   elements.testerFontSelect.addEventListener('change', (e) => {
     const selected = (e.target as HTMLSelectElement).value
-    if (selected) {
+    if (selected === 'live') {
+      triggerLiveFontBuild()
+    } else if (selected) {
       loadGeneratedFont(
         selected,
         `/build/${selected}.ttf`,
@@ -1341,16 +1343,16 @@ const config: BuildConfig = {
     return {
       base: {
         x: this.canvas.width / 2,
-        y: ${state.placement === 'top' ? 'this.canvas.height + 12' : '56'},
+        y: ${state.placement === 'top' ? 'this.canvas.height + 12' : '-4'},
         fontSize: 56,
-        anchor: 'bottom center',
+        anchor: '${state.placement === 'top' ? 'bottom center' : 'top center'}',
         attributes: { fill: 'black', stroke: 'black', id: 'glyph' }
       },
       annotation: {
         x: this.canvas.width / 2,
         y: ${state.placement === 'top' ? `-4 - ${state.verticalOffset}` : `this.canvas.height + 12 + ${state.verticalOffset}`},
         fontSize: ${Math.round(56 * (state.pinyinSize / state.hanziSize))},
-        anchor: 'top center',
+        anchor: '${state.placement === 'top' ? 'top center' : 'bottom center'}',
         attributes: {
           fill: 'black',
           stroke: 'black',
@@ -1497,6 +1499,65 @@ async function triggerFontBuild() {
   }
 }
 
+let liveBuildTimeout: number | null = null
+
+async function triggerLiveFontBuild() {
+  if (elements.testerFontSelect.value !== 'live') {
+    return
+  }
+
+  elements.testerFontStatus.className = 'badge badge-warning'
+  elements.testerFontStatus.textContent = 'Building Live...'
+
+  try {
+    const response = await fetch('/api/build-font', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        placement: state.placement,
+        verticalOffset: state.verticalOffset,
+        opticalSqueeze: state.opticalSqueeze,
+        fontWeight: state.fontWeight,
+        letterTracking: state.letterTracking,
+        pinyinSize: state.pinyinSize,
+        hanziSize: state.hanziSize,
+        fontName: 'live',
+        strategy: state.strategy,
+        characterWidth: state.characterWidth,
+        enablePolyphonic: state.enablePolyphonic,
+        text: state.testerText || ' ',
+      }),
+    })
+
+    if (!response.body) {
+      throw new Error('ReadableStream not supported')
+    }
+
+    const reader = response.body.getReader()
+    let done = false
+
+    while (!done) {
+      const { done: doneReading } = await reader.read()
+      done = doneReading
+    }
+
+    await loadGeneratedFont('live', '/build/live.ttf', '/build/live.woff2')
+  } catch (err: any) {
+    console.error('Live font build failed:', err)
+    elements.testerFontStatus.className = 'badge badge-danger'
+    elements.testerFontStatus.textContent = 'Build Failed'
+  }
+}
+
+function debouncedLiveFontBuild() {
+  if (liveBuildTimeout) {
+    clearTimeout(liveBuildTimeout)
+  }
+  liveBuildTimeout = window.setTimeout(() => {
+    triggerLiveFontBuild()
+  }, 600)
+}
+
 function renderTester() {
   elements.testerPreviewRender.textContent = state.testerText
   elements.testerPreviewRender.style.fontSize = `${state.testerFontSize}px`
@@ -1509,6 +1570,10 @@ function renderTester() {
     elements.testerPreviewRender.style.fontFamily = `'${state.testerActiveFontFamily}', sans-serif`
   } else {
     elements.testerPreviewRender.style.fontFamily = 'var(--font-serif)'
+  }
+
+  if (elements.testerFontSelect.value === 'live') {
+    debouncedLiveFontBuild()
   }
 }
 
@@ -1547,15 +1612,17 @@ async function fetchAndPopulateFonts(selectFontName?: string) {
   try {
     const response = await fetch('/api/list-fonts')
     if (!response.ok) throw new Error('Failed to fetch fonts list')
-    const fontNames: string[] = await response.json()
+    let fontNames: string[] = await response.json()
+    fontNames = fontNames.filter((name) => name !== 'live')
 
     // Populate dropdown selector
     elements.testerFontSelect.innerHTML = ''
-    if (fontNames.length === 0) {
-      elements.testerFontSelectorGroup.style.display = 'none'
-      elements.testerFontStatus.style.display = 'inline-block'
-      return
-    }
+
+    // Always add live option
+    const liveOption = document.createElement('option')
+    liveOption.value = 'live'
+    liveOption.textContent = 'live'
+    elements.testerFontSelect.appendChild(liveOption)
 
     elements.testerFontSelectorGroup.style.display = 'flex'
     fontNames.forEach((name) => {
@@ -1565,11 +1632,13 @@ async function fetchAndPopulateFonts(selectFontName?: string) {
       elements.testerFontSelect.appendChild(option)
     })
 
-    // Auto-select font: use parameter first, then current active state, fallback to first in list
-    const targetFont =
-      selectFontName || state.testerActiveFontFamily || fontNames[0]
+    // Auto-select font: use parameter first, then current active state, fallback to live
+    const targetFont = selectFontName || state.testerActiveFontFamily || 'live'
 
-    if (fontNames.includes(targetFont)) {
+    if (targetFont === 'live') {
+      elements.testerFontSelect.value = 'live'
+      triggerLiveFontBuild()
+    } else if (fontNames.includes(targetFont)) {
       elements.testerFontSelect.value = targetFont
       loadGeneratedFont(
         targetFont,
