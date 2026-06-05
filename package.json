@@ -12,7 +12,7 @@
     "Hugo Lopez"
   ],
   "scripts": {
-    "build:font": "tsx ./index.ts",
+    "build:font": "NODE_OPTIONS=\"--max-old-space-size=8192\" tsx ./index.ts",
     "build:gsub": "python3 scripts/inject-gsub.py build/ruby-font-creator.ttf build/polyphonic-map.json",
     "build": "tsc",
     "build:web": "vite build frontend",

@@ -38,9 +38,10 @@ async function generateSvg(
     const svgContent = svg.wrap(
       ruby.getBase(baseEngine, char.glyph, config.layout.base),
       ruby.getAnnotation(annotationEngine, char.ruby, config.layout.annotation),
+      config.canvas,
     )
 
-    const unicode = char.codepoint.replace('U+', 'u')
+    const unicode = char.codepoint.replace('U+', 'u').toLowerCase()
     svg.save(`${config.workingDir}/${unicode}-${char.glyph}.svg`, svgContent)
   }
 }
@@ -51,7 +52,16 @@ async function buildFont(config: BuildConfig): Promise<void> {
     src: config.workingDir,
     dist: distDir,
     fontName: config.fontName,
-    startUnicode: 0x3400,
+    formats: config.formats,
+    getIconUnicode(name: string) {
+      const match = name.match(/^u([0-9a-fA-F]+)-/)
+      if (match) {
+        const unicodeHex = match[1]
+        const unicodeNum = parseInt(unicodeHex, 16)
+        return [String.fromCodePoint(unicodeNum), unicodeNum]
+      }
+      return undefined as any
+    },
     svgicons2svgfont: {
       fontHeight: 1000,
       normalize: true,

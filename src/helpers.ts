@@ -30,9 +30,10 @@ export const helpers = {
   },
 
   async prepare(config: any): Promise<void> {
-    if (!fs.existsSync(config.workingDir)) {
-      fs.mkdirSync(config.workingDir, { recursive: true })
+    if (fs.existsSync(config.workingDir)) {
+      fs.rmSync(config.workingDir, { recursive: true, force: true })
     }
+    fs.mkdirSync(config.workingDir, { recursive: true })
   },
 
   async writeFont(content: any, destination: string): Promise<void> {

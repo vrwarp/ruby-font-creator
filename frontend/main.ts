@@ -287,6 +287,7 @@ const state = {
   // Layout & Alignment
   placement: 'top', // top | bottom
   showGuides: false,
+  characterWidth: 80,
 
   // Micro-Typography Parameters
   strategy: 'smart', // smart | proportional | global
@@ -307,9 +308,35 @@ const state = {
   // Textbook State
   activePoemIndex: 0,
 
+  // Tester State
+  testerFontSize: 32,
+  testerLineHeight: 1.8,
+  testerText: `聖哉!聖哉!聖哉!全能大主宰
+
+聖哉，聖哉，聖哉！全能的大主宰！
+清晨歡悅歌詠，高聲頌主聖恩；
+聖哉，聖哉，聖哉！恩慈永不更改！
+榮耀與讚美，歸三一真神！
+
+聖哉，聖哉，聖哉！聖徒虔誠敬拜，
+各以華麗金冠，奉獻寶座之前；
+千萬天使天軍，謙敬崇拜上主，
+
+聖哉，聖哉，聖哉！主藏在雲彩裡，
+罪人焉得瞻望，真主威嚴榮光；
+惟耶和華至聖，誰堪與主相比？
+力、仁、聖、完備，大哉天地王。
+
+聖哉，聖哉，聖哉！全能的大主宰！
+天上地下海中，萬物頌主聖名；
+聖哉，聖哉，聖哉！恩慈永不更改！
+榮耀與讚美，歸三一真神！`.trim(),
+  testerActiveFontFamily: '',
+
   // View state
-  activeTab: 'worship', // worship | textbook | sandbox
+  activeTab: 'worship', // worship | textbook | sandbox | tester
   darkMode: true,
+  enablePolyphonic: true,
 }
 
 // DOM Selectors
@@ -325,6 +352,10 @@ const elements = {
 
   placementControl: document.getElementById('placement-control')!,
   toggleGuides: document.getElementById('toggle-guides') as HTMLInputElement,
+  rangeCharacterWidth: document.getElementById(
+    'range-character-width',
+  ) as HTMLInputElement,
+  valCharacterWidth: document.getElementById('val-character-width')!,
   btnResetControls: document.getElementById('btn-reset-controls')!,
 
   strategyControl: document.getElementById('strategy-control')!,
@@ -400,6 +431,9 @@ const elements = {
 
   // Build and Download Selectors
   btnBuildFont: document.getElementById('btn-build-font')!,
+  togglePolyphonic: document.getElementById(
+    'toggle-polyphonic',
+  ) as HTMLInputElement,
   inputFontName: document.getElementById('input-font-name') as HTMLInputElement,
   buildStatusContainer: document.getElementById('build-status-container')!,
   buildStatusBadge: document.getElementById('build-status-badge')!,
@@ -412,6 +446,27 @@ const elements = {
   linkDownloadWoff2: document.getElementById(
     'link-download-woff2',
   ) as HTMLAnchorElement,
+
+  // Tester Selectors
+  testerFontStatus: document.getElementById('tester-font-status')!,
+  testerFontSelect: document.getElementById(
+    'tester-font-select',
+  ) as HTMLSelectElement,
+  testerFontSelectorGroup: document.getElementById(
+    'tester-font-selector-group',
+  )!,
+  rangeTesterFontSize: document.getElementById(
+    'range-tester-font-size',
+  ) as HTMLInputElement,
+  valTesterFontSize: document.getElementById('val-tester-font-size')!,
+  rangeTesterLineHeight: document.getElementById(
+    'range-tester-line-height',
+  ) as HTMLInputElement,
+  valTesterLineHeight: document.getElementById('val-tester-line-height')!,
+  testerTextInput: document.getElementById(
+    'tester-text-input',
+  ) as HTMLTextAreaElement,
+  testerPreviewRender: document.getElementById('tester-preview-render')!,
 }
 
 // Start Initialize
@@ -421,6 +476,7 @@ function saveStateToUrl() {
   const params = new URLSearchParams()
   params.set('placement', state.placement)
   params.set('showGuides', state.showGuides ? '1' : '0')
+  params.set('characterWidth', state.characterWidth.toString())
   params.set('strategy', state.strategy)
   params.set('verticalOffset', state.verticalOffset.toString())
   params.set('opticalSqueeze', state.opticalSqueeze.toString())
@@ -429,6 +485,7 @@ function saveStateToUrl() {
   params.set('pinyinSize', state.pinyinSize.toString())
   params.set('hanziSize', state.hanziSize.toString())
   params.set('activeTab', state.activeTab)
+  params.set('enablePolyphonic', state.enablePolyphonic ? '1' : '0')
 
   params.set('worshipTheme', state.worshipTheme)
   params.set('worshipRatio', state.worshipRatio)
@@ -440,6 +497,10 @@ function saveStateToUrl() {
   if (state.customHanzi) params.set('customHanzi', state.customHanzi)
   if (state.customPinyin) params.set('customPinyin', state.customPinyin)
 
+  params.set('testerFontSize', state.testerFontSize.toString())
+  params.set('testerLineHeight', state.testerLineHeight.toString())
+  params.set('testerText', state.testerText)
+
   const newUrl = `${window.location.pathname}?${params.toString()}${window.location.hash}`
   window.history.replaceState({}, '', newUrl)
 }
@@ -450,6 +511,8 @@ function loadStateFromUrl() {
   if (params.has('placement')) state.placement = params.get('placement')!
   if (params.has('showGuides'))
     state.showGuides = params.get('showGuides') === '1'
+  if (params.has('characterWidth'))
+    state.characterWidth = parseInt(params.get('characterWidth')!, 10)
   if (params.has('strategy')) state.strategy = params.get('strategy')!
   if (params.has('verticalOffset'))
     state.verticalOffset = parseInt(params.get('verticalOffset')!, 10)
@@ -464,6 +527,8 @@ function loadStateFromUrl() {
   if (params.has('hanziSize'))
     state.hanziSize = parseInt(params.get('hanziSize')!, 10)
   if (params.has('activeTab')) state.activeTab = params.get('activeTab')!
+  if (params.has('enablePolyphonic'))
+    state.enablePolyphonic = params.get('enablePolyphonic') === '1'
 
   if (params.has('worshipTheme'))
     state.worshipTheme = params.get('worshipTheme')!
@@ -481,12 +546,19 @@ function loadStateFromUrl() {
   if (params.has('customHanzi')) state.customHanzi = params.get('customHanzi')!
   if (params.has('customPinyin'))
     state.customPinyin = params.get('customPinyin')!
+
+  if (params.has('testerFontSize'))
+    state.testerFontSize = parseInt(params.get('testerFontSize')!, 10)
+  if (params.has('testerLineHeight'))
+    state.testerLineHeight = parseFloat(params.get('testerLineHeight')!)
+  if (params.has('testerText')) state.testerText = params.get('testerText')!
 }
 
 function syncUIFromState() {
   // Range sliders
   elements.rangeVerticalOffset.value = state.verticalOffset.toString()
   elements.rangeOpticalSqueeze.value = state.opticalSqueeze.toString()
+  elements.rangeCharacterWidth.value = state.characterWidth.toString()
   elements.rangeStrokeWeight.value = state.fontWeight.toString()
   elements.rangeLetterTracking.value = state.letterTracking.toString()
   elements.rangePinyinSize.value = state.pinyinSize.toString()
@@ -496,6 +568,7 @@ function syncUIFromState() {
   // Labels text content
   elements.valVerticalOffset.textContent = `${state.verticalOffset}px`
   elements.valOpticalSqueeze.textContent = `${state.opticalSqueeze}%`
+  elements.valCharacterWidth.textContent = `${state.characterWidth}px`
   elements.valStrokeWeight.textContent = `${state.fontWeight}`
   elements.valLetterTracking.textContent = `${state.letterTracking.toFixed(3)}em`
   elements.valPinyinSize.textContent = `${state.pinyinSize}px`
@@ -504,6 +577,7 @@ function syncUIFromState() {
 
   // Checkbox
   elements.toggleGuides.checked = state.showGuides
+  elements.togglePolyphonic.checked = state.enablePolyphonic
 
   // Custom text inputs
   elements.inputCustomHanzi.value = state.customHanzi
@@ -541,6 +615,23 @@ function syncUIFromState() {
     ? 'VISIBLE'
     : 'MUTED'
   elements.btnToggleSubtitle.className = `btn btn-small ${state.worshipSubtitleVisible ? 'btn-primary' : 'btn-secondary'}`
+
+  // Tester UI Sync
+  elements.rangeTesterFontSize.value = state.testerFontSize.toString()
+  elements.valTesterFontSize.textContent = `${state.testerFontSize}px`
+  elements.rangeTesterLineHeight.value = state.testerLineHeight.toString()
+  elements.valTesterLineHeight.textContent = state.testerLineHeight.toString()
+  elements.testerTextInput.value = state.testerText
+  elements.testerPreviewRender.textContent = state.testerText
+  if (state.testerActiveFontFamily) {
+    elements.testerPreviewRender.style.fontFamily = `'${state.testerActiveFontFamily}', sans-serif`
+    elements.testerFontStatus.className = 'badge badge-success'
+    elements.testerFontStatus.textContent = `Active: ${state.testerActiveFontFamily}`
+  } else {
+    elements.testerPreviewRender.style.fontFamily = 'var(--font-serif)'
+    elements.testerFontStatus.className = 'badge badge-warning'
+    elements.testerFontStatus.textContent = 'No Font Loaded'
+  }
 }
 
 function init() {
@@ -550,6 +641,7 @@ function init() {
   loadLocalFont()
   loadStateFromUrl()
   syncUIFromState()
+  fetchAndPopulateFonts()
   updateUI()
 }
 
@@ -660,6 +752,11 @@ function setupEventListeners() {
     updateUI()
   })
 
+  elements.togglePolyphonic.addEventListener('change', (e) => {
+    state.enablePolyphonic = (e.target as HTMLInputElement).checked
+    updateUI()
+  })
+
   // Micro-Typography Controls
   elements.strategyControl.addEventListener('click', (e) => {
     const btn = (e.target as HTMLElement).closest('button')
@@ -687,6 +784,12 @@ function setupEventListeners() {
     })
   }
 
+  bindSlider(
+    elements.rangeCharacterWidth,
+    elements.valCharacterWidth,
+    'characterWidth',
+    (v) => `${v}px`,
+  )
   bindSlider(
     elements.rangeVerticalOffset,
     elements.valVerticalOffset,
@@ -744,6 +847,7 @@ function setupEventListeners() {
     state.pinyinSize = 13
     state.hanziSize = 48
     state.strategy = 'smart'
+    state.characterWidth = 80
 
     // Update Slider inputs elements values
     elements.rangeVerticalOffset.value = '4'
@@ -758,6 +862,8 @@ function setupEventListeners() {
     elements.valPinyinSize.textContent = '13px'
     elements.rangeHanziSize.value = '48'
     elements.valHanziSize.textContent = '48px'
+    elements.rangeCharacterWidth.value = '80'
+    elements.valCharacterWidth.textContent = '80px'
 
     // Set strategy controls active classes
     document.querySelectorAll('#strategy-control .segment-btn').forEach((b) => {
@@ -866,6 +972,36 @@ function setupEventListeners() {
 
   // Build font trigger
   elements.btnBuildFont.addEventListener('click', triggerFontBuild)
+
+  // Tester event listeners
+  bindSlider(
+    elements.rangeTesterFontSize,
+    elements.valTesterFontSize,
+    'testerFontSize',
+    (v) => `${v}px`,
+  )
+  bindSlider(
+    elements.rangeTesterLineHeight,
+    elements.valTesterLineHeight,
+    'testerLineHeight',
+    (v) => `${v.toFixed(1)}`,
+    true,
+  )
+  elements.testerTextInput.addEventListener('input', (e) => {
+    state.testerText = (e.target as HTMLTextAreaElement).value
+    updateUI()
+  })
+
+  elements.testerFontSelect.addEventListener('change', (e) => {
+    const selected = (e.target as HTMLSelectElement).value
+    if (selected) {
+      loadGeneratedFont(
+        selected,
+        `/build/${selected}.ttf`,
+        `/build/${selected}.woff2`,
+      )
+    }
+  })
 }
 
 // Helper to fetch vector preview SVGs generated by the backend font engine
@@ -887,6 +1023,7 @@ async function getPreviews(
           strategy: state.strategy,
           pinyinSize: state.pinyinSize,
           hanziSize: state.hanziSize,
+          characterWidth: state.characterWidth,
         },
       }),
     })
@@ -978,6 +1115,8 @@ function updateUI() {
     renderTextbook()
   } else if (state.activeTab === 'sandbox') {
     renderSandbox()
+  } else if (state.activeTab === 'tester') {
+    renderTester()
   }
 
   // Generate config
@@ -1020,7 +1159,7 @@ async function renderWorship() {
 
       const block = document.createElement('div')
       block.className = 'ruby-char-block'
-      block.style.width = `${state.hanziSize * 1.4 * K}px`
+      block.style.width = `${state.hanziSize * 1.4 * K * (state.characterWidth / 80)}px`
 
       block.innerHTML = item.svg
       const svgEl = block.querySelector('svg')
@@ -1096,7 +1235,7 @@ async function renderTextbook() {
 
       const block = document.createElement('div')
       block.className = 'textbook-char-cell'
-      block.style.width = `${hzSize}px`
+      block.style.width = `${hzSize * (state.characterWidth / 80)}px`
       block.style.height = `${hzSize}px`
 
       block.innerHTML = item.svg
@@ -1119,7 +1258,7 @@ async function renderTextbook() {
 
       const wrapper = document.createElement('div')
       wrapper.className = 'ruby-char-block'
-      wrapper.style.width = `${hzSize}px`
+      wrapper.style.width = `${hzSize * (state.characterWidth / 80)}px`
 
       if (state.showGuides) {
         wrapper.style.outline = '1px dashed rgba(20, 184, 166, 0.15)'
@@ -1185,7 +1324,7 @@ import type { BuildConfig } from '../types.js'
 const projectRoot = import.meta.dirname
 
 const config: BuildConfig = {
-  canvas: { width: 80, height: 80 },
+  canvas: { width: ${state.characterWidth}, height: 80 },
   dataSource: path.resolve(projectRoot, '../data.json'),
   get destFilename() {
     return path.resolve(projectRoot, \`../../build/\${this.fontName}\`)
@@ -1298,6 +1437,8 @@ async function triggerFontBuild() {
         hanziSize: state.hanziSize,
         fontName: fontName,
         strategy: state.strategy,
+        characterWidth: state.characterWidth,
+        enablePolyphonic: state.enablePolyphonic,
       }),
     })
 
@@ -1333,6 +1474,9 @@ async function triggerFontBuild() {
             elements.linkDownloadTtf.href = data.files.ttf
             elements.linkDownloadWoff2.href = data.files.woff2
             elements.buildDownloadLinks.style.display = 'flex'
+
+            // Dynamically load the built font into the tester tab and refresh list
+            fetchAndPopulateFonts(fontName)
           } else if (data.status === 'error') {
             elements.buildStatusBadge.className = 'badge badge-danger'
             elements.buildStatusBadge.textContent = 'Error'
@@ -1350,5 +1494,90 @@ async function triggerFontBuild() {
     elements.buildLogs.textContent += `\nHTTP Error: ${err.message}\n`
   } finally {
     elements.btnBuildFont.removeAttribute('disabled')
+  }
+}
+
+function renderTester() {
+  elements.testerPreviewRender.textContent = state.testerText
+  elements.testerPreviewRender.style.fontSize = `${state.testerFontSize}px`
+  elements.testerPreviewRender.style.lineHeight =
+    state.testerLineHeight.toString()
+  elements.valTesterFontSize.textContent = `${state.testerFontSize}px`
+  elements.valTesterLineHeight.textContent = state.testerLineHeight.toFixed(1)
+
+  if (state.testerActiveFontFamily) {
+    elements.testerPreviewRender.style.fontFamily = `'${state.testerActiveFontFamily}', sans-serif`
+  } else {
+    elements.testerPreviewRender.style.fontFamily = 'var(--font-serif)'
+  }
+}
+
+async function loadGeneratedFont(
+  fontName: string,
+  ttfUrl: string,
+  woff2Url: string,
+) {
+  try {
+    const cacheBuster = `?t=${Date.now()}`
+    const fontFace = new FontFace(
+      fontName,
+      `url(${woff2Url}${cacheBuster}) format('woff2'), url(${ttfUrl}${cacheBuster}) format('truetype')`,
+    )
+
+    elements.testerFontStatus.className = 'badge badge-warning'
+    elements.testerFontStatus.textContent = 'Loading Font...'
+
+    await fontFace.load()
+    document.fonts.add(fontFace)
+
+    state.testerActiveFontFamily = fontName
+    elements.testerPreviewRender.style.fontFamily = `'${fontName}', sans-serif`
+    elements.testerFontStatus.className = 'badge badge-success'
+    elements.testerFontStatus.textContent = `Active: ${fontName}`
+
+    console.log(`Successfully loaded generated font: ${fontName}`)
+  } catch (err: any) {
+    console.error('Failed to load generated font face:', err)
+    elements.testerFontStatus.className = 'badge badge-danger'
+    elements.testerFontStatus.textContent = 'Load Failed'
+  }
+}
+
+async function fetchAndPopulateFonts(selectFontName?: string) {
+  try {
+    const response = await fetch('/api/list-fonts')
+    if (!response.ok) throw new Error('Failed to fetch fonts list')
+    const fontNames: string[] = await response.json()
+
+    // Populate dropdown selector
+    elements.testerFontSelect.innerHTML = ''
+    if (fontNames.length === 0) {
+      elements.testerFontSelectorGroup.style.display = 'none'
+      elements.testerFontStatus.style.display = 'inline-block'
+      return
+    }
+
+    elements.testerFontSelectorGroup.style.display = 'flex'
+    fontNames.forEach((name) => {
+      const option = document.createElement('option')
+      option.value = name
+      option.textContent = name
+      elements.testerFontSelect.appendChild(option)
+    })
+
+    // Auto-select font: use parameter first, then current active state, fallback to first in list
+    const targetFont =
+      selectFontName || state.testerActiveFontFamily || fontNames[0]
+
+    if (fontNames.includes(targetFont)) {
+      elements.testerFontSelect.value = targetFont
+      loadGeneratedFont(
+        targetFont,
+        `/build/${targetFont}.ttf`,
+        `/build/${targetFont}.woff2`,
+      )
+    }
+  } catch (err) {
+    console.error('Error listing generated fonts:', err)
   }
 }

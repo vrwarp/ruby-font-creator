@@ -96,6 +96,28 @@
               </button>
             </div>
           </div>
+          <div class="control-group range-control">
+            <div class="range-labels">
+              <span class="range-name"
+                ><i class="fa-solid fa-arrows-left-right"></i> Character
+                Width</span
+              >
+              <span class="range-value" id="val-character-width">80px</span>
+            </div>
+            <input
+              type="range"
+              id="range-character-width"
+              min="50"
+              max="150"
+              step="1"
+              value="80"
+            />
+            <div class="range-limits">
+              <span>Narrow (50px)</span>
+              <span>Default (80px)</span>
+              <span>Wide (150px)</span>
+            </div>
+          </div>
           <div class="control-group flex-row-between">
             <label for="toggle-guides">Show Guides & Grids</label>
             <label class="switch">
@@ -275,6 +297,15 @@
               placeholder="ruby-font-creator"
             />
           </div>
+          <div class="control-group flex-row-between">
+            <label for="toggle-polyphonic"
+              >Enable Polyphonic Pinyin (GSUB)</label
+            >
+            <label class="switch">
+              <input type="checkbox" id="toggle-polyphonic" checked />
+              <span class="slider round"></span>
+            </label>
+          </div>
           <button id="btn-build-font" class="btn btn-primary">
             <i class="fa-solid fa-gears"></i> Build Font Assets
           </button>
@@ -328,6 +359,9 @@
           </button>
           <button class="tab-btn" data-tab="sandbox">
             <i class="fa-solid fa-flask"></i> Interactive Vector Sandbox
+          </button>
+          <button class="tab-btn" data-tab="tester">
+            <i class="fa-solid fa-keyboard"></i> Compiled Font Tester
           </button>
         </div>
 
@@ -519,6 +553,120 @@
                 <pre class="code-block"><code id="code-config-output">
 // Loading...
               </code></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab Content: Compiled Font Tester -->
+        <div class="tab-pane" id="pane-tester">
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <h3>Compiled Font Tester</h3>
+                <p class="card-subtitle">
+                  Test the actual generated TTF/WOFF2 font loaded dynamically in
+                  the browser.
+                </p>
+              </div>
+              <div class="card-header-actions">
+                <div
+                  class="selector-group"
+                  id="tester-font-selector-group"
+                  style="display: none"
+                >
+                  <span>Select Font:</span>
+                  <select id="tester-font-select">
+                    <!-- Dynamically populated -->
+                  </select>
+                </div>
+                <span id="tester-font-status" class="badge badge-warning"
+                  >No Font Loaded</span
+                >
+              </div>
+            </div>
+            <div class="card-body tester-body">
+              <div class="tester-controls-grid">
+                <div class="control-group range-control">
+                  <div class="range-labels">
+                    <span class="range-name"
+                      ><i class="fa-solid fa-text-height"></i> Font Size</span
+                    >
+                    <span class="range-value" id="val-tester-font-size"
+                      >32px</span
+                    >
+                  </div>
+                  <input
+                    type="range"
+                    id="range-tester-font-size"
+                    min="16"
+                    max="96"
+                    step="1"
+                    value="32"
+                  />
+                </div>
+                <div class="control-group range-control">
+                  <div class="range-labels">
+                    <span class="range-name"
+                      ><i class="fa-solid fa-arrows-up-down"></i> Line
+                      Height</span
+                    >
+                    <span class="range-value" id="val-tester-line-height"
+                      >1.8</span
+                    >
+                  </div>
+                  <input
+                    type="range"
+                    id="range-tester-line-height"
+                    min="1.0"
+                    max="3.0"
+                    step="0.1"
+                    value="1.8"
+                  />
+                </div>
+              </div>
+
+              <div class="tester-input-preview-layout">
+                <div class="tester-input-box">
+                  <label for="tester-text-input"
+                    >Type Chinese text to test (glyphs must exist in generated
+                    font):</label
+                  >
+                  <textarea
+                    id="tester-text-input"
+                    placeholder="Type characters here... e.g. 奇异恩典何等甘甜，我罪已得赦免。"
+                  ></textarea>
+                </div>
+
+                <div class="tester-preview-box">
+                  <label>Live Font Preview:</label>
+                  <div id="tester-preview-render" class="tester-render-area">
+                    聖哉!聖哉!聖哉!全能大主宰 聖哉，聖哉，聖哉！全能的大主宰！
+                    清晨歡悅歌詠，高聲頌主聖恩；
+                    聖哉，聖哉，聖哉！恩慈永不更改！ 榮耀與讚美，歸三一真神！
+                    聖哉，聖哉，聖哉！聖徒虔誠敬拜，
+                    各以華麗金冠，奉獻寶座之前； 千萬天使天軍，謙敬崇拜上主，
+                    聖哉，聖哉，聖哉！主藏在雲彩裡，
+                    罪人焉得瞻望，真主威嚴榮光； 惟耶和華至聖，誰堪與主相比？
+                    力、仁、聖、完備，大哉天地王。
+                    聖哉，聖哉，聖哉！全能的大主宰！
+                    天上地下海中，萬物頌主聖名；
+                    聖哉，聖哉，聖哉！恩慈永不更改！ 榮耀與讚美，歸三一真神！
+                  </div>
+                </div>
+              </div>
+
+              <div class="info-note-card">
+                <h5>
+                  <i class="fa-solid fa-circle-info"></i> Supported Characters
+                  Tip
+                </h5>
+                <p>
+                  Only the Chinese characters registered in the source data will
+                  be replaced by the generated font glyphs. Make sure you have
+                  run <strong>Build Font Assets</strong> in the sidebar to load
+                  the font.
+                </p>
               </div>
             </div>
           </div>

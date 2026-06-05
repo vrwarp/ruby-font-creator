@@ -3,6 +3,7 @@ import { exec } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import TextToSVG from 'text-to-svg'
+import ttf2woff2 from 'ttf2woff2'
 import ruby from '../src/ruby.js'
 
 export default defineConfig({
@@ -34,24 +35,52 @@ export default defineConfig({
 
         // Serve the build/ directory directly for downloading built fonts
         server.middlewares.use((req, res, next) => {
-          if (req.url && req.url.startsWith('/build/')) {
-            const urlPath = decodeURIComponent(req.url)
-            const filePath = path.join(process.cwd(), urlPath)
-            if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
-              const ext = path.extname(filePath)
-              const contentType =
-                ext === '.ttf'
-                  ? 'font/ttf'
-                  : ext === '.woff2'
-                    ? 'font/woff2'
-                    : 'application/octet-stream'
-              res.writeHead(200, {
-                'Content-Type': contentType,
-                'Content-Disposition': `attachment; filename="${path.basename(filePath)}"`,
-              })
-              fs.createReadStream(filePath).pipe(res)
-              return
+          if (req.url) {
+            const cleanUrl = req.url.split('?')[0]
+            if (cleanUrl.startsWith('/build/')) {
+              const urlPath = decodeURIComponent(cleanUrl)
+              const filePath = path.join(process.cwd(), urlPath)
+              if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+                const ext = path.extname(filePath)
+                const contentType =
+                  ext === '.ttf'
+                    ? 'font/ttf'
+                    : ext === '.woff2'
+                      ? 'font/woff2'
+                      : 'application/octet-stream'
+                res.writeHead(200, {
+                  'Content-Type': contentType,
+                  'Content-Disposition': `attachment; filename="${path.basename(filePath)}"`,
+                })
+                fs.createReadStream(filePath).pipe(res)
+                return
+              }
             }
+          }
+          next()
+        })
+
+        // API route to list generated fonts
+        server.middlewares.use((req, res, next) => {
+          if (req.url === '/api/list-fonts' && req.method === 'GET') {
+            try {
+              const buildDir = path.resolve(process.cwd(), 'build')
+              let fontNames: string[] = []
+              if (fs.existsSync(buildDir)) {
+                const files = fs.readdirSync(buildDir)
+                // Filter for .ttf files and strip extensions, ignoring any symbol files
+                const ttfFiles = files.filter(
+                  (f) => f.endsWith('.ttf') && !f.endsWith('.symbol.ttf'),
+                )
+                fontNames = ttfFiles.map((f) => path.basename(f, '.ttf'))
+              }
+              res.writeHead(200, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify(fontNames))
+            } catch (err: any) {
+              res.writeHead(500, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ error: err.message }))
+            }
+            return
           }
           next()
         })
@@ -75,6 +104,8 @@ export default defineConfig({
                   hanziSize,
                   fontName,
                   strategy,
+                  characterWidth,
+                  enablePolyphonic,
                 } = JSON.parse(body)
 
                 const sanitizedFontName = (fontName || 'ruby-font').replace(
@@ -96,7 +127,7 @@ import type { BuildConfig } from '../types.js'
 const projectRoot = import.meta.dirname
 
 const config: BuildConfig = {
-  canvas: { width: 80, height: 80 },
+  canvas: { width: ${characterWidth || 80}, height: 80 },
   dataSource: path.resolve(projectRoot, '../data.json'),
   get destFilename() {
     return path.resolve(projectRoot, \`../../build/\${this.fontName}\`)
@@ -143,7 +174,7 @@ export default config
                 fs.writeFileSync(configPath, configContent, 'utf-8')
 
                 // Execute the builder command
-                const cmd = `npx tsx ./index.ts --config ./src/config/web-temp.ts`
+                const cmd = `NODE_OPTIONS="--max-old-space-size=8192" npx tsx ./index.ts --config ./src/config/web-temp.ts`
                 res.writeHead(200, {
                   'Content-Type': 'application/json',
                   'Transfer-Encoding': 'chunked',
@@ -178,16 +209,106 @@ export default config
 
                 processSpawn.on('close', (code) => {
                   if (code === 0) {
-                    res.write(
-                      JSON.stringify({
-                        status: 'success',
-                        message: 'Font built successfully!',
-                        files: {
-                          ttf: `/build/${sanitizedFontName}.ttf`,
-                          woff2: `/build/${sanitizedFontName}.woff2`,
+                    if (enablePolyphonic) {
+                      res.write(
+                        JSON.stringify({
+                          status: 'building',
+                          log: '\nInjecting GSUB rules for polyphonic Chinese characters...\n',
+                        }) + '\n',
+                      )
+                      const injectCmd = `python3 scripts/inject-gsub.py build/${sanitizedFontName}.ttf build/polyphonic-map.json`
+                      exec(
+                        injectCmd,
+                        { cwd: process.cwd() },
+                        (err, stdout, stderr) => {
+                          if (stdout) {
+                            res.write(
+                              JSON.stringify({
+                                status: 'building',
+                                log: stdout,
+                              }) + '\n',
+                            )
+                          }
+                          if (stderr) {
+                            res.write(
+                              JSON.stringify({
+                                status: 'building',
+                                log: stderr,
+                              }) + '\n',
+                            )
+                          }
+                          if (err) {
+                            res.write(
+                              JSON.stringify({
+                                status: 'error',
+                                message: `GSUB injection failed: ${err.message}`,
+                              }) + '\n',
+                            )
+                            res.end()
+                            return
+                          }
+
+                          // Convert TTF to WOFF2 using the Node library to ensure it gets the GSUB rules too
+                          try {
+                            res.write(
+                              JSON.stringify({
+                                status: 'building',
+                                log: 'Re-generating WOFF2 font with GSUB features...\n',
+                              }) + '\n',
+                            )
+                            const ttfPath = path.resolve(
+                              process.cwd(),
+                              `build/${sanitizedFontName}.ttf`,
+                            )
+                            const woff2Path = path.resolve(
+                              process.cwd(),
+                              `build/${sanitizedFontName}.woff2`,
+                            )
+                            const ttfBuffer = fs.readFileSync(ttfPath)
+                            const woff2Buffer = ttf2woff2(ttfBuffer)
+                            fs.writeFileSync(woff2Path, woff2Buffer)
+                            res.write(
+                              JSON.stringify({
+                                status: 'building',
+                                log: 'WOFF2 font updated.\n',
+                              }) + '\n',
+                            )
+                          } catch (convErr: any) {
+                            res.write(
+                              JSON.stringify({
+                                status: 'building',
+                                log: `Warning: WOFF2 compression failed: ${convErr.message}\n`,
+                              }) + '\n',
+                            )
+                          }
+
+                          res.write(
+                            JSON.stringify({
+                              status: 'success',
+                              message:
+                                'Font built successfully with GSUB features!',
+                              files: {
+                                ttf: `/build/${sanitizedFontName}.ttf`,
+                                woff2: `/build/${sanitizedFontName}.woff2`,
+                              },
+                            }) + '\n',
+                          )
+                          res.end()
                         },
-                      }) + '\n',
-                    )
+                      )
+                    } else {
+                      res.write(
+                        JSON.stringify({
+                          status: 'success',
+                          message: 'Font built successfully!',
+                          files: {
+                            ttf: `/build/${sanitizedFontName}.ttf`,
+                            woff2: `/build/${sanitizedFontName}.woff2`,
+                          },
+                        }) + '\n',
+                      )
+                      res.end()
+                    }
                   } else {
                     res.write(
                       JSON.stringify({
@@ -195,8 +316,8 @@ export default config
                         message: `Compilation failed with exit code ${code}`,
                       }) + '\n',
                     )
+                    res.end()
                   }
-                  res.end()
                 })
               } catch (err: any) {
                 res.writeHead(500, { 'Content-Type': 'application/json' })
@@ -224,6 +345,8 @@ export default config
                 }
 
                 const { glyphs, layout } = JSON.parse(body)
+                const characterWidth = layout.characterWidth || 80
+                const centerVal = characterWidth / 2
                 const isPlacementTop = layout.placement === 'top'
                 const baseLineY = isPlacementTop ? 92 : -4
                 const baseAnchor = isPlacementTop
@@ -240,7 +363,7 @@ export default config
                   (char: { glyph: string; ruby: string }) => {
                     // Render base glyph using text-to-svg outline
                     const baseSvgPath = ruby.getBase(fontEngine!, char.glyph, {
-                      x: 40,
+                      x: centerVal,
                       y: baseLineY,
                       fontSize: 56,
                       anchor: baseAnchor,
@@ -262,7 +385,7 @@ export default config
                       fontEngine!,
                       char.ruby,
                       {
-                        x: 40,
+                        x: centerVal,
                         y: annoLineY,
                         fontSize: pinyinFontSize,
                         anchor: annoAnchor,
@@ -277,7 +400,7 @@ export default config
                       },
                     )
 
-                    const svgContent = `<svg width="80" height="80" viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg">
+                    const svgContent = `<svg width="${characterWidth}" height="80" viewBox="0 0 ${characterWidth} 80" xmlns="http://www.w3.org/2000/svg">
                       ${baseSvgPath}
                       ${pinyinPaths}
                     </svg>`
