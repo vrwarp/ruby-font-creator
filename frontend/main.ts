@@ -311,7 +311,7 @@ const state = {
   // Tester State
   testerFontSize: 32,
   testerLineHeight: 1.8,
-  testerText: `聖哉!聖哉!聖哉!全能大主宰
+  testerText: `聖哉！聖哉！聖哉！全能大主宰
 
 聖哉，聖哉，聖哉！全能的大主宰！
 清晨歡悅歌詠，高聲頌主聖恩；

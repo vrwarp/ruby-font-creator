@@ -1,8 +1,123 @@
 [
   {
-    "codepoint": "U+5167",
-    "ruby": "nèi",
-    "glyph": "內"
+    "codepoint": "U+4E00",
+    "ruby": "yī",
+    "glyph": "一"
+  },
+  {
+    "codepoint": "U+4E09",
+    "ruby": "sān",
+    "glyph": "三"
+  },
+  {
+    "codepoint": "U+4E0A",
+    "ruby": "shàng",
+    "glyph": "上"
+  },
+  {
+    "codepoint": "U+4E0B",
+    "ruby": "xià",
+    "glyph": "下"
+  },
+  {
+    "codepoint": "U+4E0D",
+    "ruby": "bù",
+    "glyph": "不"
+  },
+  {
+    "codepoint": "U+4E2D",
+    "ruby": "zhōng",
+    "glyph": "中"
+  },
+  {
+    "codepoint": "U+4E3B",
+    "ruby": "zhǔ",
+    "glyph": "主"
+  },
+  {
+    "codepoint": "U+4E4B",
+    "ruby": "zhī",
+    "glyph": "之"
+  },
+  {
+    "codepoint": "U+4EBA",
+    "ruby": "rén",
+    "glyph": "人"
+  },
+  {
+    "codepoint": "U+4EC1",
+    "ruby": "rén",
+    "glyph": "仁"
+  },
+  {
+    "codepoint": "U+4EE5",
+    "ruby": "yǐ",
+    "glyph": "以"
+  },
+  {
+    "codepoint": "U+4F7F",
+    "ruby": "shǐ",
+    "glyph": "使"
+  },
+  {
+    "codepoint": "U+5099",
+    "ruby": "bèi",
+    "glyph": "備"
+  },
+  {
+    "codepoint": "U+5149",
+    "ruby": "guāng",
+    "glyph": "光"
+  },
+  {
+    "codepoint": "U+5168",
+    "ruby": "quán",
+    "glyph": "全"
+  },
+  {
+    "codepoint": "U+51A0",
+    "ruby": "guān",
+    "glyph": "冠"
+  },
+  {
+    "codepoint": "U+524D",
+    "ruby": "qián",
+    "glyph": "前"
+  },
+  {
+    "codepoint": "U+529B",
+    "ruby": "lì",
+    "glyph": "力"
+  },
+  {
+    "codepoint": "U+5343",
+    "ruby": "qiān",
+    "glyph": "千"
+  },
+  {
+    "codepoint": "U+5404",
+    "ruby": "gè",
+    "glyph": "各"
+  },
+  {
+    "codepoint": "U+540D",
+    "ruby": "míng",
+    "glyph": "名"
+  },
+  {
+    "codepoint": "U+548C",
+    "ruby": "hé",
+    "glyph": "和"
+  },
+  {
+    "codepoint": "U+54C9",
+    "ruby": "zāi",
+    "glyph": "哉"
+  },
+  {
+    "codepoint": "U+56B4",
+    "ruby": "yán",
+    "glyph": "嚴"
   },
   {
     "codepoint": "U+5728",
@@ -10,24 +125,184 @@
     "glyph": "在"
   },
   {
-    "codepoint": "U+5FC5",
-    "ruby": "bì",
-    "glyph": "必"
+    "codepoint": "U+5730",
+    "ruby": "de",
+    "glyph": "地"
   },
   {
-    "codepoint": "U+6211",
-    "ruby": "wǒ",
-    "glyph": "我"
+    "codepoint": "U+582A",
+    "ruby": "kān",
+    "glyph": "堪"
   },
   {
-    "codepoint": "U+6D32",
-    "ruby": "zhōu",
-    "glyph": "洲"
+    "codepoint": "U+5927",
+    "ruby": "dà",
+    "glyph": "大"
   },
   {
-    "codepoint": "U+6EFF",
-    "ruby": "mǎn",
-    "glyph": "滿"
+    "codepoint": "U+5929",
+    "ruby": "tiān",
+    "glyph": "天"
+  },
+  {
+    "codepoint": "U+5949",
+    "ruby": "fèng",
+    "glyph": "奉"
+  },
+  {
+    "codepoint": "U+5A01",
+    "ruby": "wēi",
+    "glyph": "威"
+  },
+  {
+    "codepoint": "U+5B8C",
+    "ruby": "wán",
+    "glyph": "完"
+  },
+  {
+    "codepoint": "U+5BB0",
+    "ruby": "zǎi",
+    "glyph": "宰"
+  },
+  {
+    "codepoint": "U+5BF6",
+    "ruby": "bǎo",
+    "glyph": "寶"
+  },
+  {
+    "codepoint": "U+5D07",
+    "ruby": "chóng",
+    "glyph": "崇"
+  },
+  {
+    "codepoint": "U+5EA7",
+    "ruby": "zuò",
+    "glyph": "座"
+  },
+  {
+    "codepoint": "U+5F69",
+    "ruby": "cǎi",
+    "glyph": "彩"
+  },
+  {
+    "codepoint": "U+5F92",
+    "ruby": "tú",
+    "glyph": "徒"
+  },
+  {
+    "codepoint": "U+5F97",
+    "ruby": "dé",
+    "glyph": "得"
+  },
+  {
+    "codepoint": "U+6069",
+    "ruby": "ēn",
+    "glyph": "恩"
+  },
+  {
+    "codepoint": "U+6085",
+    "ruby": "yuè",
+    "glyph": "悅"
+  },
+  {
+    "codepoint": "U+60DF",
+    "ruby": "wéi",
+    "glyph": "惟"
+  },
+  {
+    "codepoint": "U+6148",
+    "ruby": "cí",
+    "glyph": "慈"
+  },
+  {
+    "codepoint": "U+62DC",
+    "ruby": "bài",
+    "glyph": "拜"
+  },
+  {
+    "codepoint": "U+6539",
+    "ruby": "gǎi",
+    "glyph": "改"
+  },
+  {
+    "codepoint": "U+656C",
+    "ruby": "jìng",
+    "glyph": "敬"
+  },
+  {
+    "codepoint": "U+6668",
+    "ruby": "chén",
+    "glyph": "晨"
+  },
+  {
+    "codepoint": "U+66F4",
+    "ruby": "gèng",
+    "glyph": "更"
+  },
+  {
+    "codepoint": "U+671B",
+    "ruby": "wàng",
+    "glyph": "望"
+  },
+  {
+    "codepoint": "U+69AE",
+    "ruby": "róng",
+    "glyph": "榮"
+  },
+  {
+    "codepoint": "U+6B4C",
+    "ruby": "gē",
+    "glyph": "歌"
+  },
+  {
+    "codepoint": "U+6B61",
+    "ruby": "huān",
+    "glyph": "歡"
+  },
+  {
+    "codepoint": "U+6B78",
+    "ruby": "guī",
+    "glyph": "歸"
+  },
+  {
+    "codepoint": "U+6BD4",
+    "ruby": "bǐ",
+    "glyph": "比"
+  },
+  {
+    "codepoint": "U+6C38",
+    "ruby": "yǒng",
+    "glyph": "永"
+  },
+  {
+    "codepoint": "U+6D77",
+    "ruby": "hǎi",
+    "glyph": "海"
+  },
+  {
+    "codepoint": "U+6E05",
+    "ruby": "qīng",
+    "glyph": "清"
+  },
+  {
+    "codepoint": "U+7109",
+    "ruby": "yān",
+    "glyph": "焉"
+  },
+  {
+    "codepoint": "U+7269",
+    "ruby": "wù",
+    "glyph": "物"
+  },
+  {
+    "codepoint": "U+737B",
+    "ruby": "xiàn",
+    "glyph": "獻"
+  },
+  {
+    "codepoint": "U+738B",
+    "ruby": "wáng",
+    "glyph": "王"
   },
   {
     "codepoint": "U+7684",
@@ -35,28 +310,153 @@
     "glyph": "的"
   },
   {
-    "codepoint": "U+79C9",
-    "ruby": "bǐng",
-    "glyph": "秉"
+    "codepoint": "U+76F8",
+    "ruby": "xiāng",
+    "glyph": "相"
   },
   {
-    "codepoint": "U+8521",
-    "ruby": "cài",
-    "glyph": "蔡"
+    "codepoint": "U+771F",
+    "ruby": "zhēn",
+    "glyph": "真"
   },
   {
-    "codepoint": "U+884C",
-    "ruby": "xíng",
-    "glyph": "行"
+    "codepoint": "U+77BB",
+    "ruby": "zhān",
+    "glyph": "瞻"
   },
   {
-    "codepoint": "U+9280",
-    "ruby": "yín",
-    "glyph": "銀"
+    "codepoint": "U+795E",
+    "ruby": "shén",
+    "glyph": "神"
   },
   {
-    "codepoint": "U+E000",
-    "glyph": "行",
-    "ruby": "háng"
+    "codepoint": "U+7F6A",
+    "ruby": "zuì",
+    "glyph": "罪"
+  },
+  {
+    "codepoint": "U+7F8E",
+    "ruby": "měi",
+    "glyph": "美"
+  },
+  {
+    "codepoint": "U+8000",
+    "ruby": "yào",
+    "glyph": "耀"
+  },
+  {
+    "codepoint": "U+8036",
+    "ruby": "yé",
+    "glyph": "耶"
+  },
+  {
+    "codepoint": "U+8056",
+    "ruby": "shèng",
+    "glyph": "聖"
+  },
+  {
+    "codepoint": "U+8072",
+    "ruby": "shēng",
+    "glyph": "聲"
+  },
+  {
+    "codepoint": "U+80FD",
+    "ruby": "néng",
+    "glyph": "能"
+  },
+  {
+    "codepoint": "U+81F3",
+    "ruby": "zhì",
+    "glyph": "至"
+  },
+  {
+    "codepoint": "U+8207",
+    "ruby": "yǔ",
+    "glyph": "與"
+  },
+  {
+    "codepoint": "U+83EF",
+    "ruby": "huá",
+    "glyph": "華"
+  },
+  {
+    "codepoint": "U+842C",
+    "ruby": "wàn",
+    "glyph": "萬"
+  },
+  {
+    "codepoint": "U+85CF",
+    "ruby": "cáng",
+    "glyph": "藏"
+  },
+  {
+    "codepoint": "U+8654",
+    "ruby": "qián",
+    "glyph": "虔"
+  },
+  {
+    "codepoint": "U+88E1",
+    "ruby": "lǐ",
+    "glyph": "裡"
+  },
+  {
+    "codepoint": "U+8A60",
+    "ruby": "yǒng",
+    "glyph": "詠"
+  },
+  {
+    "codepoint": "U+8AA0",
+    "ruby": "chéng",
+    "glyph": "誠"
+  },
+  {
+    "codepoint": "U+8AB0",
+    "ruby": "shuí",
+    "glyph": "誰"
+  },
+  {
+    "codepoint": "U+8B19",
+    "ruby": "qiān",
+    "glyph": "謙"
+  },
+  {
+    "codepoint": "U+8B9A",
+    "ruby": "zàn",
+    "glyph": "讚"
+  },
+  {
+    "codepoint": "U+8ECD",
+    "ruby": "jūn",
+    "glyph": "軍"
+  },
+  {
+    "codepoint": "U+91D1",
+    "ruby": "jīn",
+    "glyph": "金"
+  },
+  {
+    "codepoint": "U+96F2",
+    "ruby": "yún",
+    "glyph": "雲"
+  },
+  {
+    "codepoint": "U+980C",
+    "ruby": "sòng",
+    "glyph": "頌"
+  },
+  {
+    "codepoint": "U+9AD8",
+    "ruby": "gāo",
+    "glyph": "高"
+  },
+  {
+    "codepoint": "U+9E97",
+    "ruby": "lì",
+    "glyph": "麗"
+  },
+  {
+    "codepoint": "U+E022",
+    "glyph": "和",
+    "ruby": "hè"
   }
 ]
