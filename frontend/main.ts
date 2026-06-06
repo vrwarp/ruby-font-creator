@@ -293,6 +293,7 @@ const state = {
 
   // Layout & Alignment
   placement: 'top', // top | bottom
+  pinyinFont: 'droid-sans', // droid-sans | pt-sans-regular | pt-sans-bold
   showGuides: false,
   characterWidth: 80,
 
@@ -359,6 +360,7 @@ const elements = {
   ) as HTMLInputElement,
 
   placementControl: document.getElementById('placement-control')!,
+  pinyinFontControl: document.getElementById('pinyin-font-control')!,
   toggleGuides: document.getElementById('toggle-guides') as HTMLInputElement,
   rangeCharacterWidth: document.getElementById(
     'range-character-width',
@@ -486,6 +488,7 @@ const elements = {
 function saveStateToUrl() {
   const params = new URLSearchParams()
   params.set('placement', state.placement)
+  params.set('pinyinFont', state.pinyinFont)
   params.set('showGuides', state.showGuides ? '1' : '0')
   params.set('characterWidth', state.characterWidth.toString())
   params.set('strategy', state.strategy)
@@ -497,7 +500,6 @@ function saveStateToUrl() {
   params.set('hanziSize', state.hanziSize.toString())
   params.set('activeTab', state.activeTab)
   params.set('enablePolyphonic', state.enablePolyphonic ? '1' : '0')
-
   params.set('worshipTheme', state.worshipTheme)
   params.set('worshipRatio', state.worshipRatio)
   params.set('worshipScale', state.worshipScale.toFixed(2))
@@ -520,6 +522,7 @@ function loadStateFromUrl() {
   const params = new URLSearchParams(window.location.search)
 
   if (params.has('placement')) state.placement = params.get('placement')!
+  if (params.has('pinyinFont')) state.pinyinFont = params.get('pinyinFont')!
   if (params.has('showGuides'))
     state.showGuides = params.get('showGuides') === '1'
   if (params.has('characterWidth'))
@@ -601,6 +604,16 @@ function syncUIFromState() {
       b.getAttribute('data-placement') === state.placement,
     )
   })
+
+  // Pinyin Font segmented control
+  document
+    .querySelectorAll('#pinyin-font-control .segment-btn')
+    .forEach((b) => {
+      b.classList.toggle(
+        'active',
+        b.getAttribute('data-font') === state.pinyinFont,
+      )
+    })
 
   // Strategy segmented control
   document.querySelectorAll('#strategy-control .segment-btn').forEach((b) => {
@@ -777,6 +790,18 @@ function setupEventListeners() {
     state.placement = btn.dataset.placement || 'top'
     document
       .querySelectorAll('#placement-control .segment-btn')
+      .forEach((b) => {
+        b.classList.toggle('active', b === btn)
+      })
+    updateUI()
+  })
+
+  elements.pinyinFontControl.addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest('button')
+    if (!btn) return
+    state.pinyinFont = btn.dataset.font || 'droid-sans'
+    document
+      .querySelectorAll('#pinyin-font-control .segment-btn')
       .forEach((b) => {
         b.classList.toggle('active', b === btn)
       })
@@ -1102,6 +1127,7 @@ function setupEventListeners() {
 }
 
 let localFontEngine: any = null
+const annotationFontEngines: Record<string, any> = {}
 
 async function getLocalFontEngine(): Promise<any> {
   if (localFontEngine) return localFontEngine
@@ -1115,12 +1141,32 @@ async function getLocalFontEngine(): Promise<any> {
   return localFontEngine
 }
 
+async function getAnnotationFontEngine(fontKey: string): Promise<any> {
+  if (annotationFontEngines[fontKey]) return annotationFontEngines[fontKey]
+
+  let filename = 'DroidSansFallbackFull.ttf'
+  if (fontKey === 'pt-sans-regular') {
+    filename = 'PT_Sans-Narrow-Web-Regular.ttf'
+  } else if (fontKey === 'pt-sans-bold') {
+    filename = 'PT_Sans-Narrow-Web-Bold.ttf'
+  }
+
+  const res = await fetch(`./resources/fonts/${filename}`)
+  if (!res.ok) throw new Error(`Failed to fetch annotation font ${filename}`)
+  const buffer = await res.arrayBuffer()
+  const font = opentype.parse(buffer)
+  const engine = new TextToSVG(font)
+  annotationFontEngines[fontKey] = engine
+  return engine
+}
+
 // Helper to render vector preview SVGs locally in-browser
 async function getPreviews(
   glyphs: { glyph: string; ruby: string }[],
 ): Promise<{ glyph: string; ruby: string; svg: string }[]> {
   try {
-    const engine = await getLocalFontEngine()
+    const baseEngine = await getLocalFontEngine()
+    const annoEngine = await getAnnotationFontEngine(state.pinyinFont)
     return glyphs.map((char) => {
       const isPlacementTop = state.placement === 'top'
       const characterWidth = state.characterWidth || 80
@@ -1132,7 +1178,7 @@ async function getPreviews(
         : 92 + state.verticalOffset
       const annoAnchor = isPlacementTop ? 'top center' : 'bottom center'
 
-      const baseSvgPath = ruby.getBase(engine, char.glyph, {
+      const baseSvgPath = ruby.getBase(baseEngine, char.glyph, {
         x: centerVal,
         y: baseLineY,
         fontSize: 56,
@@ -1147,7 +1193,7 @@ async function getPreviews(
         56 * (state.pinyinSize / state.hanziSize),
       )
 
-      const pinyinPaths = ruby.getAnnotation(engine, char.ruby, {
+      const pinyinPaths = ruby.getAnnotation(annoEngine, char.ruby, {
         x: centerVal,
         y: annoLineY,
         fontSize: pinyinFontSize,
@@ -1186,6 +1232,7 @@ async function getPreviews(
 async function loadLocalFont() {
   try {
     await getLocalFontEngine()
+    await getAnnotationFontEngine(state.pinyinFont)
     elements.fontLoadingBanner.innerHTML = `<span class="text-emerald-500"><i class="fa-solid fa-circle-check"></i> In-Browser Preview Engine Active</span>`
   } catch (err: any) {
     elements.fontLoadingBanner.innerHTML = `<span class="text-rose-500"><i class="fa-solid fa-circle-xmark"></i> Failed to initialize engine: ${err.message}</span>`
@@ -1499,7 +1546,19 @@ const config: BuildConfig = {
   fontFilepath: path.resolve(
     projectRoot,
     '../../resources/fonts/DroidSansFallbackFull.ttf',
-  ),
+  ),${
+    state.pinyinFont === 'pt-sans-regular'
+      ? `\n  annotationFontFilepath: path.resolve(
+    projectRoot,
+    '../../resources/fonts/PT_Sans-Narrow-Web-Regular.ttf',
+  ),`
+      : state.pinyinFont === 'pt-sans-bold'
+        ? `\n  annotationFontFilepath: path.resolve(
+    projectRoot,
+    '../../resources/fonts/PT_Sans-Narrow-Web-Bold.ttf',
+  ),`
+        : ''
+  }
   fontName: 'ruby-font-creator',
   formats: ['ttf', 'woff2'],
   inputFiles: './build/**/*.svg',
@@ -1594,7 +1653,8 @@ async function triggerFontBuild() {
   elements.btnBuildFont.setAttribute('disabled', 'true')
 
   try {
-    const fontEngine = await getLocalFontEngine()
+    const baseFontEngine = await getLocalFontEngine()
+    const annotationFontEngine = await getAnnotationFontEngine(state.pinyinFont)
 
     // Load base data
     const dataResponse = await fetch('./data.json')
@@ -1639,7 +1699,8 @@ async function triggerFontBuild() {
     const result = await compileFontInBrowser(
       allEntries,
       config,
-      fontEngine,
+      baseFontEngine,
+      annotationFontEngine,
       state.enablePolyphonic,
       (msg) => {
         elements.buildLogs.textContent += msg
@@ -1705,7 +1766,8 @@ async function triggerLiveFontBuild() {
   elements.testerFontStatus.textContent = 'Building Live...'
 
   try {
-    const fontEngine = await getLocalFontEngine()
+    const baseFontEngine = await getLocalFontEngine()
+    const annotationFontEngine = await getAnnotationFontEngine(state.pinyinFont)
     const text = state.testerText || ' '
     const uniqueChars = new Set(text.split(''))
 
@@ -1765,7 +1827,8 @@ async function triggerLiveFontBuild() {
     const result = await compileFontInBrowser(
       filteredData,
       config,
-      fontEngine,
+      baseFontEngine,
+      annotationFontEngine,
       state.enablePolyphonic,
       () => {}, // silence logging for live build
     )

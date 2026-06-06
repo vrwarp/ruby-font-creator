@@ -45,7 +45,8 @@ export interface CompileResult {
 export async function compileFontInBrowser(
   data: GlyphEntry[],
   config: BuildConfig,
-  fontEngine: any,
+  baseFontEngine: any,
+  annotationFontEngine: any,
   enablePolyphonic: boolean,
   logCallback: (msg: string) => void,
 ): Promise<CompileResult> {
@@ -58,7 +59,11 @@ export async function compileFontInBrowser(
 
   for (const char of data) {
     try {
-      const baseSvg = ruby.getBase(fontEngine, char.glyph, config.layout.base)
+      const baseSvg = ruby.getBase(
+        baseFontEngine,
+        char.glyph,
+        config.layout.base,
+      )
       const baseD = ruby.getData(baseSvg)
       const baseScaled = svgpath(baseD)
         .scale(scaleX, scaleY)
@@ -66,7 +71,7 @@ export async function compileFontInBrowser(
         .toString()
 
       const annoSvg = ruby.getAnnotation(
-        fontEngine,
+        annotationFontEngine,
         char.ruby,
         config.layout.annotation,
       )
