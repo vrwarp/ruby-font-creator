@@ -26,12 +26,19 @@ export default tseslint.config(
     },
   },
   {
+    files: ['frontend/public/sw.js'],
+    languageOptions: {
+      globals: { ...globals.serviceworker },
+    },
+  },
+  {
     ignores: [
       'build/',
       'dist/',
       'dist-web/',
       'node_modules/',
       'scratch/',
+      'frontend/public/',
       '**/*.timestamp-*',
     ],
   },

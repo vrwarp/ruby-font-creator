@@ -1,4 +1,11 @@
 // Pinyin Typography Lab Main Application Logic
+import TextToSVG from 'text-to-svg'
+import opentype from 'opentype.js'
+import ruby from '../src/ruby.js'
+import {
+  getAlternateGlyphEntries,
+  POLYPHONIC_ENTRIES,
+} from '../src/polyphonic.js'
 
 // Interface declarations
 interface SyllablePreset {
@@ -342,6 +349,7 @@ const state = {
 // DOM Selectors
 const elements = {
   themeToggleBtn: document.getElementById('btn-theme-toggle')!,
+  sectionChooseSyllable: document.getElementById('section-choose-syllable')!,
   syllablePresets: document.getElementById('syllable-presets')!,
   inputCustomHanzi: document.getElementById(
     'input-custom-hanzi',
@@ -420,8 +428,12 @@ const elements = {
   // Vector Sandbox Selectors
   svgPreviewContainer: document.getElementById('svg-preview-container')!,
   fontLoadingBanner: document.getElementById('font-loading-banner')!,
-  codeConfigOutput: document.getElementById('code-config-output')!,
-  btnCopyConfig: document.getElementById('btn-copy-config')!,
+  codeConfigOutput: document.getElementById(
+    'code-config-output',
+  ) as HTMLElement | null,
+  btnCopyConfig: document.getElementById(
+    'btn-copy-config',
+  ) as HTMLElement | null,
   btnExportSVG: document.getElementById('btn-export-svg')!,
 
   // Presentation Overlay Selectors
@@ -470,7 +482,6 @@ const elements = {
 }
 
 // Start Initialize
-init()
 
 function saveStateToUrl() {
   const params = new URLSearchParams()
@@ -646,17 +657,42 @@ function init() {
 }
 
 // Set up App Color Theme
+function applyTheme() {
+  if (state.darkMode) {
+    document.documentElement.classList.remove('light-mode')
+    elements.themeToggleBtn.innerHTML = '<i class="fa-solid fa-sun"></i>'
+    elements.themeToggleBtn.title = 'Switch to Light Mode'
+  } else {
+    document.documentElement.classList.add('light-mode')
+    elements.themeToggleBtn.innerHTML = '<i class="fa-solid fa-moon"></i>'
+    elements.themeToggleBtn.title = 'Switch to Dark Mode'
+  }
+  localStorage.setItem('theme', state.darkMode ? 'dark' : 'light')
+}
+
 function setupTheme() {
+  const savedTheme = localStorage.getItem('theme')
+  if (savedTheme) {
+    state.darkMode = savedTheme === 'dark'
+  } else {
+    state.darkMode = !window.matchMedia('(prefers-color-scheme: light)').matches
+  }
+
+  applyTheme()
+
   elements.themeToggleBtn.addEventListener('click', () => {
     state.darkMode = !state.darkMode
-    if (state.darkMode) {
-      document.documentElement.classList.remove('light-mode')
-      elements.themeToggleBtn.innerHTML = '<i class="fa-solid fa-moon"></i>'
-    } else {
-      document.documentElement.classList.add('light-mode')
-      elements.themeToggleBtn.innerHTML = '<i class="fa-solid fa-sun"></i>'
-    }
+    applyTheme()
   })
+
+  window
+    .matchMedia('(prefers-color-scheme: dark)')
+    .addEventListener('change', (e) => {
+      if (!localStorage.getItem('theme')) {
+        state.darkMode = e.matches
+        applyTheme()
+      }
+    })
 }
 
 // Generate preset buttons dynamically
@@ -957,15 +993,21 @@ function setupEventListeners() {
   elements.btnExitPresentation.addEventListener('click', exitPresentation)
 
   // Clipboard Copier
-  elements.btnCopyConfig.addEventListener('click', () => {
-    navigator.clipboard.writeText(elements.codeConfigOutput.textContent || '')
-    const origText = elements.btnCopyConfig.innerHTML
-    elements.btnCopyConfig.innerHTML =
-      '<i class="fa-solid fa-check"></i> Copied!'
-    setTimeout(() => {
-      elements.btnCopyConfig.innerHTML = origText
-    }, 2000)
-  })
+  if (elements.btnCopyConfig) {
+    elements.btnCopyConfig.addEventListener('click', () => {
+      navigator.clipboard.writeText(
+        elements.codeConfigOutput?.textContent || '',
+      )
+      const origText = elements.btnCopyConfig!.innerHTML
+      elements.btnCopyConfig!.innerHTML =
+        '<i class="fa-solid fa-check"></i> Copied!'
+      setTimeout(() => {
+        if (elements.btnCopyConfig) {
+          elements.btnCopyConfig.innerHTML = origText
+        }
+      }, 2000)
+    })
+  }
 
   // SVG Export button
   elements.btnExportSVG.addEventListener('click', triggerSVGDownload)
@@ -992,47 +1034,147 @@ function setupEventListeners() {
     updateUI()
   })
 
-  elements.testerFontSelect.addEventListener('change', (e) => {
+  elements.testerFontSelect.addEventListener('change', async (e) => {
     const selected = (e.target as HTMLSelectElement).value
     if (selected === 'live') {
       triggerLiveFontBuild()
     } else if (selected) {
-      loadGeneratedFont(
-        selected,
-        `/build/${selected}.ttf`,
-        `/build/${selected}.woff2`,
-      )
+      try {
+        const { getFont } = await import('./db.js')
+        const saved = await getFont(selected)
+        if (saved) {
+          if (saved.config) {
+            state.placement = saved.config.placement
+            state.verticalOffset = saved.config.verticalOffset
+            state.opticalSqueeze = saved.config.opticalSqueeze
+            state.fontWeight = saved.config.fontWeight
+            state.letterTracking = saved.config.letterTracking
+            state.pinyinSize = saved.config.pinyinSize
+            state.hanziSize = saved.config.hanziSize
+            state.strategy = saved.config.strategy
+            state.characterWidth = saved.config.characterWidth
+            state.enablePolyphonic = saved.config.enablePolyphonic
+
+            elements.rangeVerticalOffset.value = state.verticalOffset.toString()
+            elements.rangeOpticalSqueeze.value = state.opticalSqueeze.toString()
+            elements.rangeStrokeWeight.value = state.fontWeight.toString()
+            elements.rangeLetterTracking.value = state.letterTracking.toString()
+            elements.rangePinyinSize.value = state.pinyinSize.toString()
+            elements.rangeHanziSize.value = state.hanziSize.toString()
+            elements.rangeCharacterWidth.value = state.characterWidth.toString()
+            elements.togglePolyphonic.checked = state.enablePolyphonic
+            elements.valVerticalOffset.textContent = `${state.verticalOffset}px`
+            elements.valOpticalSqueeze.textContent = `${state.opticalSqueeze}%`
+            elements.valStrokeWeight.textContent = state.fontWeight.toString()
+            elements.valLetterTracking.textContent =
+              state.letterTracking.toFixed(3)
+            elements.valPinyinSize.textContent = `${state.pinyinSize}px`
+            elements.valHanziSize.textContent = `${state.hanziSize}px`
+            elements.valCharacterWidth.textContent = `${state.characterWidth}px`
+
+            const placeActive = document.querySelector(
+              '#placement-control .active',
+            )
+            if (placeActive) placeActive.classList.remove('active')
+            const placeBtn = document.querySelector(
+              `#placement-control button[data-val="${state.placement}"]`,
+            )
+            if (placeBtn) placeBtn.classList.add('active')
+
+            const stratActive = document.querySelector(
+              '#strategy-control .active',
+            )
+            if (stratActive) stratActive.classList.remove('active')
+            const stratBtn = document.querySelector(
+              `#strategy-control button[data-val="${state.strategy}"]`,
+            )
+            if (stratBtn) stratBtn.classList.add('active')
+
+            updateUI()
+          }
+          await loadGeneratedFont(selected, saved.ttf, saved.woff2)
+        }
+      } catch (err) {
+        console.error('Failed to load font from IndexedDB:', err)
+      }
     }
   })
 }
 
-// Helper to fetch vector preview SVGs generated by the backend font engine
+let localFontEngine: any = null
+
+async function getLocalFontEngine(): Promise<any> {
+  if (localFontEngine) return localFontEngine
+
+  const res = await fetch('./resources/fonts/DroidSansFallbackFull.ttf')
+  if (!res.ok)
+    throw new Error('Failed to fetch base font DroidSansFallbackFull.ttf')
+  const buffer = await res.arrayBuffer()
+  const font = opentype.parse(buffer)
+  localFontEngine = new TextToSVG(font)
+  return localFontEngine
+}
+
+// Helper to render vector preview SVGs locally in-browser
 async function getPreviews(
   glyphs: { glyph: string; ruby: string }[],
 ): Promise<{ glyph: string; ruby: string; svg: string }[]> {
   try {
-    const response = await fetch('/api/render-preview', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        glyphs,
-        layout: {
-          placement: state.placement,
-          verticalOffset: state.verticalOffset,
-          opticalSqueeze: state.opticalSqueeze,
-          fontWeight: state.fontWeight,
-          letterTracking: state.letterTracking,
-          strategy: state.strategy,
-          pinyinSize: state.pinyinSize,
-          hanziSize: state.hanziSize,
-          characterWidth: state.characterWidth,
+    const engine = await getLocalFontEngine()
+    return glyphs.map((char) => {
+      const isPlacementTop = state.placement === 'top'
+      const characterWidth = state.characterWidth || 80
+      const centerVal = characterWidth / 2
+      const baseLineY = isPlacementTop ? 92 : -4
+      const baseAnchor = isPlacementTop ? 'bottom center' : 'top center'
+      const annoLineY = isPlacementTop
+        ? -4 - state.verticalOffset
+        : 92 + state.verticalOffset
+      const annoAnchor = isPlacementTop ? 'top center' : 'bottom center'
+
+      const baseSvgPath = ruby.getBase(engine, char.glyph, {
+        x: centerVal,
+        y: baseLineY,
+        fontSize: 56,
+        anchor: baseAnchor,
+        attributes: {
+          fill: 'currentColor',
+          id: 'glyph',
         },
-      }),
+      })
+
+      const pinyinFontSize = Math.round(
+        56 * (state.pinyinSize / state.hanziSize),
+      )
+
+      const pinyinPaths = ruby.getAnnotation(engine, char.ruby, {
+        x: centerVal,
+        y: annoLineY,
+        fontSize: pinyinFontSize,
+        anchor: annoAnchor,
+        attributes: {
+          fill: 'currentColor',
+          id: 'annotation',
+        },
+        squeeze: state.opticalSqueeze,
+        tracking: state.letterTracking,
+        weight: state.fontWeight,
+        strategy: state.strategy,
+      })
+
+      const svgContent = `<svg width="${characterWidth}" height="80" viewBox="0 0 ${characterWidth} 80" xmlns="http://www.w3.org/2000/svg">
+        ${baseSvgPath}
+        ${pinyinPaths}
+      </svg>`
+
+      return {
+        glyph: char.glyph,
+        ruby: char.ruby,
+        svg: svgContent,
+      }
     })
-    if (!response.ok) throw new Error('Preview fetch failed')
-    return await response.json()
   } catch (err) {
-    console.error('Error fetching preview SVGs:', err)
+    console.error('Error rendering previews locally:', err)
     return glyphs.map((g) => ({
       glyph: g.glyph,
       ruby: g.ruby,
@@ -1041,9 +1183,13 @@ async function getPreviews(
   }
 }
 
-function loadLocalFont() {
-  // Stubbed out: Opentype is no longer required client-side since the backend renders true vectors!
-  elements.fontLoadingBanner.innerHTML = `<span class="text-emerald-500"><i class="fa-solid fa-circle-check"></i> Backend Live Renderer Active</span>`
+async function loadLocalFont() {
+  try {
+    await getLocalFontEngine()
+    elements.fontLoadingBanner.innerHTML = `<span class="text-emerald-500"><i class="fa-solid fa-circle-check"></i> In-Browser Preview Engine Active</span>`
+  } catch (err: any) {
+    elements.fontLoadingBanner.innerHTML = `<span class="text-rose-500"><i class="fa-solid fa-circle-xmark"></i> Failed to initialize engine: ${err.message}</span>`
+  }
 }
 
 // Compute Pinyin layout specs based on syllable size and active strategy
@@ -1103,6 +1249,12 @@ function getActiveSyllable() {
 
 // Update App Views
 function updateUI() {
+  // Toggle Choose Test Syllable section based on activeTab
+  if (elements.sectionChooseSyllable) {
+    ;(elements.sectionChooseSyllable as HTMLElement).style.display =
+      state.activeTab === 'sandbox' ? 'flex' : 'none'
+  }
+
   // Update labels values
   elements.valVerticalOffset.textContent = `${state.verticalOffset}px`
   elements.valOpticalSqueeze.textContent = `${state.opticalSqueeze}%`
@@ -1310,6 +1462,19 @@ async function renderSandbox() {
       svgEl.setAttribute('width', '100%')
       svgEl.setAttribute('height', '100%')
       svgEl.style.overflow = 'visible'
+
+      const isPlacementTop = state.placement === 'top'
+      const minY = isPlacementTop
+        ? Math.min(-15 - state.verticalOffset, 0)
+        : -70
+      const maxY = isPlacementTop
+        ? 100
+        : Math.max(105 + state.verticalOffset, 90)
+      const heightY = maxY - minY
+      svgEl.setAttribute(
+        'viewBox',
+        `0 ${minY} ${state.characterWidth} ${heightY}`,
+      )
     }
   }
 }
@@ -1369,7 +1534,9 @@ const config: BuildConfig = {
 export default config
 `
 
-  elements.codeConfigOutput.textContent = code
+  if (elements.codeConfigOutput) {
+    elements.codeConfigOutput.textContent = code
+  }
 }
 
 // Package current preview SVG into download link
@@ -1413,23 +1580,80 @@ function exitPresentation() {
   elements.presentationOverlay.classList.remove('active')
 }
 
-// Trigger backend font compiler task via Vite API middleware
+// Trigger browser-side font compiler task
 async function triggerFontBuild() {
   const fontName = elements.inputFontName.value.trim() || 'ruby-font'
+  const sanitizedFontName = fontName.replace(/[^a-zA-Z0-9-_]/g, '')
 
   elements.buildStatusContainer.style.display = 'block'
   elements.buildStatusBadge.className = 'badge badge-warning'
   elements.buildStatusBadge.textContent = 'Building...'
   elements.buildStatusTime.textContent = new Date().toLocaleTimeString()
-  elements.buildLogs.textContent = 'Triggering backend compilation...\n'
+  elements.buildLogs.textContent = 'Initializing in-browser compilation...\n'
   elements.buildDownloadLinks.style.display = 'none'
   elements.btnBuildFont.setAttribute('disabled', 'true')
 
   try {
-    const response = await fetch('/api/build-font', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+    const fontEngine = await getLocalFontEngine()
+
+    // Load base data
+    const dataResponse = await fetch('./data.json')
+    if (!dataResponse.ok) throw new Error('Failed to fetch data.json')
+    const allData = await dataResponse.json()
+
+    const { compileFontInBrowser } = await import('./compiler.js')
+    const { saveFont } = await import('./db.js')
+
+    const allEntries = [...allData, ...getAlternateGlyphEntries()]
+
+    // Build configuration object
+    const calculatedPinyinFontSize = Math.round(
+      56 * (state.pinyinSize / state.hanziSize),
+    )
+    const config = {
+      canvas: { width: state.characterWidth, height: 80 },
+      fontName: sanitizedFontName,
+      layout: {
+        base: {
+          x: state.characterWidth / 2,
+          y: state.placement === 'top' ? 92 : -4,
+          fontSize: 56,
+          anchor: state.placement === 'top' ? 'bottom center' : 'top center',
+        },
+        annotation: {
+          x: state.characterWidth / 2,
+          y:
+            state.placement === 'top'
+              ? -4 - state.verticalOffset
+              : 92 + state.verticalOffset,
+          fontSize: calculatedPinyinFontSize,
+          anchor: state.placement === 'top' ? 'top center' : 'bottom center',
+          squeeze: state.opticalSqueeze,
+          tracking: state.letterTracking,
+          weight: state.fontWeight,
+          strategy: state.strategy,
+        },
+      },
+    } as any
+
+    const result = await compileFontInBrowser(
+      allEntries,
+      config,
+      fontEngine,
+      state.enablePolyphonic,
+      (msg) => {
+        elements.buildLogs.textContent += msg
+        elements.buildLogs.scrollTop = elements.buildLogs.scrollHeight
+      },
+    )
+
+    // Save to IndexedDB
+    elements.buildLogs.textContent += 'Saving compiled font to IndexedDB...\n'
+    await saveFont({
+      fontName: sanitizedFontName,
+      ttf: result.ttf,
+      woff2: result.woff2,
+      config: {
         placement: state.placement,
         verticalOffset: state.verticalOffset,
         opticalSqueeze: state.opticalSqueeze,
@@ -1437,63 +1661,34 @@ async function triggerFontBuild() {
         letterTracking: state.letterTracking,
         pinyinSize: state.pinyinSize,
         hanziSize: state.hanziSize,
-        fontName: fontName,
         strategy: state.strategy,
         characterWidth: state.characterWidth,
         enablePolyphonic: state.enablePolyphonic,
-      }),
+      },
+      timestamp: Date.now(),
     })
 
-    if (!response.body) {
-      throw new Error('ReadableStream not supported in this browser.')
-    }
+    // Setup Blob URLs for downloads
+    const ttfBlob = new Blob([result.ttf], { type: 'font/ttf' })
+    const woff2Blob = new Blob([result.woff2], { type: 'font/woff2' })
 
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let done = false
+    elements.linkDownloadTtf.href = URL.createObjectURL(ttfBlob)
+    elements.linkDownloadTtf.download = `${sanitizedFontName}.ttf`
 
-    while (!done) {
-      const { value, done: doneReading } = await reader.read()
-      done = doneReading
-      const chunk = decoder.decode(value, { stream: !done })
+    elements.linkDownloadWoff2.href = URL.createObjectURL(woff2Blob)
+    elements.linkDownloadWoff2.download = `${sanitizedFontName}.woff2`
 
-      // Split by newline since the server streams newline-separated JSON objects
-      const lines = chunk.split('\n')
-      for (const line of lines) {
-        if (!line.trim()) continue
-        try {
-          const data = JSON.parse(line)
-          if (data.status === 'building' && data.log) {
-            elements.buildLogs.textContent += data.log
-            elements.buildLogs.scrollTop = elements.buildLogs.scrollHeight
-          } else if (data.status === 'success') {
-            elements.buildStatusBadge.className = 'badge badge-success'
-            elements.buildStatusBadge.textContent = 'Success'
-            elements.buildLogs.textContent += `\nSuccess: ${data.message}\n`
-            elements.buildLogs.scrollTop = elements.buildLogs.scrollHeight
+    elements.buildStatusBadge.className = 'badge badge-success'
+    elements.buildStatusBadge.textContent = 'Success'
+    elements.buildDownloadLinks.style.display = 'flex'
 
-            // Setup download links
-            elements.linkDownloadTtf.href = data.files.ttf
-            elements.linkDownloadWoff2.href = data.files.woff2
-            elements.buildDownloadLinks.style.display = 'flex'
-
-            // Dynamically load the built font into the tester tab and refresh list
-            fetchAndPopulateFonts(fontName)
-          } else if (data.status === 'error') {
-            elements.buildStatusBadge.className = 'badge badge-danger'
-            elements.buildStatusBadge.textContent = 'Error'
-            elements.buildLogs.textContent += `\nError: ${data.message}\n`
-            elements.buildLogs.scrollTop = elements.buildLogs.scrollHeight
-          }
-        } catch {
-          // Incomplete chunk line or parsing error, skip
-        }
-      }
-    }
+    // Load and register locally in browser for testing
+    await loadGeneratedFont(sanitizedFontName, result.ttf, result.woff2)
+    fetchAndPopulateFonts(sanitizedFontName)
   } catch (err: any) {
     elements.buildStatusBadge.className = 'badge badge-danger'
     elements.buildStatusBadge.textContent = 'Failed'
-    elements.buildLogs.textContent += `\nHTTP Error: ${err.message}\n`
+    elements.buildLogs.textContent += `\nError: ${err.message}\n`
   } finally {
     elements.btnBuildFont.removeAttribute('disabled')
   }
@@ -1510,38 +1705,72 @@ async function triggerLiveFontBuild() {
   elements.testerFontStatus.textContent = 'Building Live...'
 
   try {
-    const response = await fetch('/api/build-font', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        placement: state.placement,
-        verticalOffset: state.verticalOffset,
-        opticalSqueeze: state.opticalSqueeze,
-        fontWeight: state.fontWeight,
-        letterTracking: state.letterTracking,
-        pinyinSize: state.pinyinSize,
-        hanziSize: state.hanziSize,
-        fontName: 'live',
-        strategy: state.strategy,
-        characterWidth: state.characterWidth,
-        enablePolyphonic: state.enablePolyphonic,
-        text: state.testerText || ' ',
-      }),
-    })
+    const fontEngine = await getLocalFontEngine()
+    const text = state.testerText || ' '
+    const uniqueChars = new Set(text.split(''))
 
-    if (!response.body) {
-      throw new Error('ReadableStream not supported')
+    // Load base data
+    const dataResponse = await fetch('./data.json')
+    if (!dataResponse.ok) throw new Error('Failed to fetch data.json')
+    const allData = await dataResponse.json()
+
+    // Filter data matching user input
+    const filteredData = allData.filter((entry: any) =>
+      uniqueChars.has(entry.glyph),
+    )
+
+    if (state.enablePolyphonic) {
+      const alternates = getAlternateGlyphEntries()
+      const polyGlyphs = new Set(POLYPHONIC_ENTRIES.map((p) => p.glyph))
+      const activePolyGlyphs = [...uniqueChars].filter((c) => polyGlyphs.has(c))
+      const activeAlternates = alternates.filter((alt) => {
+        const parentEntry = POLYPHONIC_ENTRIES.find((p) =>
+          p.alternates.some((a) => a.codepoint === alt.codepoint),
+        )
+        return parentEntry && activePolyGlyphs.includes(parentEntry.glyph)
+      })
+      filteredData.push(...activeAlternates)
     }
 
-    const reader = response.body.getReader()
-    let done = false
+    const { compileFontInBrowser } = await import('./compiler.js')
+    const calculatedPinyinFontSize = Math.round(
+      56 * (state.pinyinSize / state.hanziSize),
+    )
+    const config = {
+      canvas: { width: state.characterWidth, height: 80 },
+      fontName: 'live',
+      layout: {
+        base: {
+          x: state.characterWidth / 2,
+          y: state.placement === 'top' ? 92 : -4,
+          fontSize: 56,
+          anchor: state.placement === 'top' ? 'bottom center' : 'top center',
+        },
+        annotation: {
+          x: state.characterWidth / 2,
+          y:
+            state.placement === 'top'
+              ? -4 - state.verticalOffset
+              : 92 + state.verticalOffset,
+          fontSize: calculatedPinyinFontSize,
+          anchor: state.placement === 'top' ? 'top center' : 'bottom center',
+          squeeze: state.opticalSqueeze,
+          tracking: state.letterTracking,
+          weight: state.fontWeight,
+          strategy: state.strategy,
+        },
+      },
+    } as any
 
-    while (!done) {
-      const { done: doneReading } = await reader.read()
-      done = doneReading
-    }
+    const result = await compileFontInBrowser(
+      filteredData,
+      config,
+      fontEngine,
+      state.enablePolyphonic,
+      () => {}, // silence logging for live build
+    )
 
-    await loadGeneratedFont('live', '/build/live.ttf', '/build/live.woff2')
+    await loadGeneratedFont('live', result.ttf, result.woff2)
   } catch (err: any) {
     console.error('Live font build failed:', err)
     elements.testerFontStatus.className = 'badge badge-danger'
@@ -1579,14 +1808,13 @@ function renderTester() {
 
 async function loadGeneratedFont(
   fontName: string,
-  ttfUrl: string,
-  woff2Url: string,
+  ttfBuffer: Uint8Array,
+  woff2Buffer: Uint8Array,
 ) {
   try {
-    const cacheBuster = `?t=${Date.now()}`
     const fontFace = new FontFace(
       fontName,
-      `url(${woff2Url}${cacheBuster}) format('woff2'), url(${ttfUrl}${cacheBuster}) format('truetype')`,
+      woff2Buffer.length > 0 ? woff2Buffer : ttfBuffer,
     )
 
     elements.testerFontStatus.className = 'badge badge-warning'
@@ -1610,10 +1838,128 @@ async function loadGeneratedFont(
 
 async function fetchAndPopulateFonts(selectFontName?: string) {
   try {
-    const response = await fetch('/api/list-fonts')
-    if (!response.ok) throw new Error('Failed to fetch fonts list')
-    let fontNames: string[] = await response.json()
+    const { listFonts } = await import('./db.js')
+    let fontNames: string[] = await listFonts()
     fontNames = fontNames.filter((name) => name !== 'live')
+
+    // Populate stored fonts list container
+    const listContainer = document.getElementById('stored-fonts-list')
+    if (listContainer) {
+      listContainer.innerHTML = ''
+      if (fontNames.length === 0) {
+        listContainer.innerHTML =
+          '<div style="color: var(--text-muted); font-size: 0.72rem; text-align: center; padding: 1rem;">No stored custom fonts.</div>'
+      } else {
+        fontNames.forEach((name) => {
+          const item = document.createElement('div')
+          item.className = 'stored-font-item'
+          item.style.display = 'flex'
+          item.style.alignItems = 'center'
+          item.style.justifyContent = 'space-between'
+          item.style.padding = '0.4rem 0.6rem'
+          item.style.border = '1px solid var(--border-color)'
+          item.style.borderRadius = '0.5rem'
+          item.style.backgroundColor = 'var(--bg-card)'
+
+          const nameSpan = document.createElement('span')
+          nameSpan.textContent = name
+          nameSpan.style.fontSize = '0.75rem'
+          nameSpan.style.fontWeight = '600'
+          nameSpan.style.color = 'var(--text-primary)'
+          nameSpan.style.overflow = 'hidden'
+          nameSpan.style.textOverflow = 'ellipsis'
+          nameSpan.style.whiteSpace = 'nowrap'
+          nameSpan.style.maxWidth = '120px'
+
+          const actionsDiv = document.createElement('div')
+          actionsDiv.style.display = 'flex'
+          actionsDiv.style.gap = '0.25rem'
+
+          // Use Button
+          const useBtn = document.createElement('button')
+          useBtn.className =
+            name === state.testerActiveFontFamily
+              ? 'btn btn-small btn-primary'
+              : 'btn btn-small btn-secondary'
+          useBtn.style.padding = '0.15rem 0.4rem'
+          useBtn.style.fontSize = '0.65rem'
+          useBtn.textContent =
+            name === state.testerActiveFontFamily ? 'Active' : 'Use'
+          useBtn.addEventListener('click', async () => {
+            elements.testerFontSelect.value = name
+            const event = new Event('change')
+            elements.testerFontSelect.dispatchEvent(event)
+          })
+
+          // TTF Download Button
+          const dlTtfBtn = document.createElement('button')
+          dlTtfBtn.className = 'btn btn-small btn-secondary'
+          dlTtfBtn.style.padding = '0.15rem 0.4rem'
+          dlTtfBtn.style.fontSize = '0.65rem'
+          dlTtfBtn.innerHTML = '<i class="fa-solid fa-download"></i> TTF'
+          dlTtfBtn.addEventListener('click', async () => {
+            const { getFont } = await import('./db.js')
+            const font = await getFont(name)
+            if (font) {
+              const blob = new Blob([font.ttf], { type: 'font/ttf' })
+              const url = URL.createObjectURL(blob)
+              const a = document.createElement('a')
+              a.href = url
+              a.download = `${name}.ttf`
+              a.click()
+            }
+          })
+
+          // WOFF2 Download Button
+          const dlWoff2Btn = document.createElement('button')
+          dlWoff2Btn.className = 'btn btn-small btn-secondary'
+          dlWoff2Btn.style.padding = '0.15rem 0.4rem'
+          dlWoff2Btn.style.fontSize = '0.65rem'
+          dlWoff2Btn.innerHTML = 'WOFF2'
+          dlWoff2Btn.addEventListener('click', async () => {
+            const { getFont } = await import('./db.js')
+            const font = await getFont(name)
+            if (font) {
+              const blob = new Blob([font.woff2], { type: 'font/woff2' })
+              const url = URL.createObjectURL(blob)
+              const a = document.createElement('a')
+              a.href = url
+              a.download = `${name}.woff2`
+              a.click()
+            }
+          })
+
+          // Delete Button
+          const delBtn = document.createElement('button')
+          delBtn.className = 'btn btn-small'
+          delBtn.style.padding = '0.15rem 0.35rem'
+          delBtn.style.fontSize = '0.65rem'
+          delBtn.style.backgroundColor = 'rgba(244, 63, 94, 0.15)'
+          delBtn.style.color = 'var(--color-rose)'
+          delBtn.style.border = '1px solid rgba(244, 63, 94, 0.3)'
+          delBtn.innerHTML = '<i class="fa-solid fa-trash"></i>'
+          delBtn.addEventListener('click', async () => {
+            if (confirm(`Delete font "${name}"?`)) {
+              const { deleteFont } = await import('./db.js')
+              await deleteFont(name)
+              if (state.testerActiveFontFamily === name) {
+                state.testerActiveFontFamily = ''
+              }
+              await fetchAndPopulateFonts()
+            }
+          })
+
+          actionsDiv.appendChild(useBtn)
+          actionsDiv.appendChild(dlTtfBtn)
+          actionsDiv.appendChild(dlWoff2Btn)
+          actionsDiv.appendChild(delBtn)
+
+          item.appendChild(nameSpan)
+          item.appendChild(actionsDiv)
+          listContainer.appendChild(item)
+        })
+      }
+    }
 
     // Populate dropdown selector
     elements.testerFontSelect.innerHTML = ''
@@ -1640,13 +1986,70 @@ async function fetchAndPopulateFonts(selectFontName?: string) {
       triggerLiveFontBuild()
     } else if (fontNames.includes(targetFont)) {
       elements.testerFontSelect.value = targetFont
-      loadGeneratedFont(
-        targetFont,
-        `/build/${targetFont}.ttf`,
-        `/build/${targetFont}.woff2`,
-      )
+      const { getFont } = await import('./db.js')
+      const saved = await getFont(targetFont)
+      if (saved) {
+        if (saved.config) {
+          state.placement = saved.config.placement
+          state.verticalOffset = saved.config.verticalOffset
+          state.opticalSqueeze = saved.config.opticalSqueeze
+          state.fontWeight = saved.config.fontWeight
+          state.letterTracking = saved.config.letterTracking
+          state.pinyinSize = saved.config.pinyinSize
+          state.hanziSize = saved.config.hanziSize
+          state.strategy = saved.config.strategy
+          state.characterWidth = saved.config.characterWidth
+          state.enablePolyphonic = saved.config.enablePolyphonic
+
+          elements.rangeVerticalOffset.value = state.verticalOffset.toString()
+          elements.rangeOpticalSqueeze.value = state.opticalSqueeze.toString()
+          elements.rangeStrokeWeight.value = state.fontWeight.toString()
+          elements.rangeLetterTracking.value = state.letterTracking.toString()
+          elements.rangePinyinSize.value = state.pinyinSize.toString()
+          elements.rangeHanziSize.value = state.hanziSize.toString()
+          elements.rangeCharacterWidth.value = state.characterWidth.toString()
+          elements.togglePolyphonic.checked = state.enablePolyphonic
+
+          document
+            .querySelectorAll('#placement-control .segment-btn')
+            .forEach((b) => {
+              b.classList.toggle(
+                'active',
+                b.getAttribute('data-placement') === state.placement,
+              )
+            })
+          document
+            .querySelectorAll('#strategy-control .segment-btn')
+            .forEach((b) => {
+              b.classList.toggle(
+                'active',
+                b.getAttribute('data-strategy') === state.strategy,
+              )
+            })
+        }
+        await loadGeneratedFont(targetFont, saved.ttf, saved.woff2)
+      }
     }
   } catch (err) {
     console.error('Error listing generated fonts:', err)
   }
 }
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker
+      .register('./sw.js')
+      .then((registration) => {
+        console.log(
+          '[PWA] Service Worker registered scope:',
+          registration.scope,
+        )
+      })
+      .catch((err) => {
+        console.error('[PWA] Service Worker registration failed:', err)
+      })
+  })
+}
+
+// Start initialization after all declarations are evaluated
+init()

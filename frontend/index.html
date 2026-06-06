@@ -3,7 +3,22 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0f172a" />
     <title>Pinyin Typography Lab — Font Design Companion</title>
+    <link rel="manifest" href="./manifest.json" />
+    <!-- Inline script to prevent theme flash (FOUC) -->
+    <script>
+      ;(function () {
+        const savedTheme = localStorage.getItem('theme')
+        if (
+          savedTheme === 'light' ||
+          (!savedTheme &&
+            window.matchMedia('(prefers-color-scheme: light)').matches)
+        ) {
+          document.documentElement.classList.add('light-mode')
+        }
+      })()
+    </script>
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -16,8 +31,6 @@
       rel="stylesheet"
       href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
     />
-    <!-- opentype.js CDN -->
-    <script src="https://cdn.jsdelivr.net/npm/opentype.js@1.3.4/dist/opentype.min.js"></script>
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
@@ -53,36 +66,10 @@
     <main class="app-main">
       <!-- Sidebar: Controls -->
       <section class="control-panel scrollable-panel">
-        <!-- Section 1: Choose Syllable -->
+        <!-- Section 1: Layout & Alignment -->
         <div class="panel-section">
           <h2 class="section-title">
             <span class="step-num">1</span>
-            Choose a Test Syllable
-          </h2>
-          <div id="syllable-presets" class="preset-grid">
-            <!-- Dynamically populated -->
-          </div>
-          <div class="custom-input-group">
-            <div class="input-field">
-              <label for="input-custom-hanzi">Hanzi</label>
-              <input
-                type="text"
-                id="input-custom-hanzi"
-                maxlength="1"
-                placeholder="字"
-              />
-            </div>
-            <div class="input-field">
-              <label for="input-custom-pinyin">Pinyin</label>
-              <input type="text" id="input-custom-pinyin" placeholder="zì" />
-            </div>
-          </div>
-        </div>
-
-        <!-- Section 2: Layout & Alignment -->
-        <div class="panel-section">
-          <h2 class="section-title">
-            <span class="step-num">2</span>
             Layout & Alignment
           </h2>
           <div class="control-group">
@@ -112,11 +99,6 @@
               step="1"
               value="80"
             />
-            <div class="range-limits">
-              <span>Narrow (50px)</span>
-              <span>Default (80px)</span>
-              <span>Wide (150px)</span>
-            </div>
           </div>
           <div class="control-group flex-row-between">
             <label for="toggle-guides">Show Guides & Grids</label>
@@ -127,11 +109,11 @@
           </div>
         </div>
 
-        <!-- Section 3: Micro-Typography Tuning -->
+        <!-- Section 2: Micro-Typography Tuning -->
         <div class="panel-section">
           <div class="section-header">
             <h2 class="section-title">
-              <span class="step-num">3</span>
+              <span class="step-num">2</span>
               Micro-Typography Tuning
             </h2>
             <button id="btn-reset-controls" class="reset-link-btn">
@@ -155,196 +137,114 @@
             </div>
           </div>
 
-          <!-- Pinyin Vertical Offset -->
-          <div class="control-group range-control">
-            <div class="range-labels">
-              <span class="range-name"
-                ><i class="fa-solid fa-arrows-up-down"></i> Vertical
-                Offset</span
-              >
-              <span class="range-value" id="val-vertical-offset">4px</span>
+          <div class="sidebar-sliders-grid">
+            <!-- Pinyin Vertical Offset -->
+            <div class="control-group range-control">
+              <div class="range-labels">
+                <span class="range-name"
+                  ><i class="fa-solid fa-arrows-up-down"></i> Offset</span
+                >
+                <span class="range-value" id="val-vertical-offset">4px</span>
+              </div>
+              <input
+                type="range"
+                id="range-vertical-offset"
+                min="-20"
+                max="60"
+                step="1"
+                value="4"
+              />
             </div>
-            <input
-              type="range"
-              id="range-vertical-offset"
-              min="-20"
-              max="60"
-              step="1"
-              value="4"
-            />
-            <div class="range-limits">
-              <span>Tight (-20px)</span>
-              <span>Default (4px)</span>
-              <span>Spaced (60px)</span>
-            </div>
-          </div>
 
-          <!-- Optical Width Squeeze -->
-          <div class="control-group range-control">
-            <div class="range-labels">
-              <span class="range-name"
-                ><i class="fa-solid fa-arrows-left-right-to-line"></i> Optical
-                Squeeze</span
-              >
-              <span class="range-value" id="val-optical-squeeze">65%</span>
+            <!-- Stroke Weight Compensation -->
+            <div class="control-group range-control">
+              <div class="range-labels">
+                <span class="range-name"
+                  ><i class="fa-solid fa-bold"></i> Weight</span
+                >
+                <span class="range-value" id="val-stroke-weight">500</span>
+              </div>
+              <input
+                type="range"
+                id="range-stroke-weight"
+                min="100"
+                max="900"
+                step="50"
+                value="500"
+              />
             </div>
-            <input
-              type="range"
-              id="range-optical-squeeze"
-              min="30"
-              max="120"
-              step="1"
-              value="65"
-            />
-            <div class="range-limits">
-              <span>Narrow (30%)</span>
-              <span>Normal (100%)</span>
-              <span>Wide (120%)</span>
-            </div>
-          </div>
 
-          <!-- Stroke Weight Compensation -->
-          <div class="control-group range-control">
-            <div class="range-labels">
-              <span class="range-name"
-                ><i class="fa-solid fa-bold"></i> Weight Compensation</span
-              >
-              <span class="range-value" id="val-stroke-weight">500</span>
+            <!-- Optical Width Squeeze -->
+            <div class="control-group range-control">
+              <div class="range-labels">
+                <span class="range-name"
+                  ><i class="fa-solid fa-arrows-left-right-to-line"></i> Squeeze</span
+                >
+                <span class="range-value" id="val-optical-squeeze">65%</span>
+              </div>
+              <input
+                type="range"
+                id="range-optical-squeeze"
+                min="30"
+                max="120"
+                step="1"
+                value="65"
+              />
             </div>
-            <input
-              type="range"
-              id="range-stroke-weight"
-              min="100"
-              max="900"
-              step="50"
-              value="500"
-            />
-            <div class="range-limits">
-              <span>Light (100)</span>
-              <span>Regular (400)</span>
-              <span>Black (900)</span>
-            </div>
-          </div>
 
-          <!-- Letter Tracking (Kern) -->
-          <div class="control-group range-control">
-            <div class="range-labels">
-              <span class="range-name"
-                ><i class="fa-solid fa-left-right"></i> Letter Tracking
-                (Kern)</span
-              >
-              <span class="range-value" id="val-letter-tracking">-0.040em</span>
+            <!-- Letter Tracking (Kern) -->
+            <div class="control-group range-control">
+              <div class="range-labels">
+                <span class="range-name"
+                  ><i class="fa-solid fa-left-right"></i> Tracking</span
+                >
+                <span class="range-value" id="val-letter-tracking">-0.040em</span>
+              </div>
+              <input
+                type="range"
+                id="range-letter-tracking"
+                min="-0.250"
+                max="0.250"
+                step="0.005"
+                value="-0.04"
+              />
             </div>
-            <input
-              type="range"
-              id="range-letter-tracking"
-              min="-0.250"
-              max="0.250"
-              step="0.005"
-              value="-0.04"
-            />
-            <div class="range-limits">
-              <span>Tight (-0.25em)</span>
-              <span>0.00em</span>
-              <span>Loose (0.25em)</span>
-            </div>
-          </div>
 
-          <!-- Base Sizes -->
-          <div class="control-group range-control border-top-divider">
-            <div class="range-labels">
-              <span class="range-name">Pinyin Base Size</span>
-              <span class="range-value" id="val-pinyin-size">13px</span>
+            <!-- Pinyin Base Size -->
+            <div class="control-group range-control">
+              <div class="range-labels">
+                <span class="range-name">Pinyin Size</span>
+                <span class="range-value" id="val-pinyin-size">13px</span>
+              </div>
+              <input
+                type="range"
+                id="range-pinyin-size"
+                min="8"
+                max="24"
+                step="1"
+                value="13"
+              />
             </div>
-            <input
-              type="range"
-              id="range-pinyin-size"
-              min="8"
-              max="24"
-              step="1"
-              value="13"
-            />
-          </div>
 
-          <div class="control-group range-control">
-            <div class="range-labels">
-              <span class="range-name">Hanzi Grid Size</span>
-              <span class="range-value" id="val-hanzi-size">48px</span>
+            <!-- Hanzi Grid Size -->
+            <div class="control-group range-control">
+              <div class="range-labels">
+                <span class="range-name">Hanzi Size</span>
+                <span class="range-value" id="val-hanzi-size">48px</span>
+              </div>
+              <input
+                type="range"
+                id="range-hanzi-size"
+                min="36"
+                max="80"
+                step="1"
+                value="48"
+              />
             </div>
-            <input
-              type="range"
-              id="range-hanzi-size"
-              min="36"
-              max="80"
-              step="1"
-              value="48"
-            />
           </div>
         </div>
 
-        <!-- Section 4: Build & Download Font -->
-        <div class="panel-section">
-          <h2 class="section-title">
-            <span class="step-num">4</span>
-            Build & Download Font
-          </h2>
-          <div class="control-group">
-            <label for="input-font-name">Font Name</label>
-            <input
-              type="text"
-              id="input-font-name"
-              value="ruby-font-creator"
-              placeholder="ruby-font-creator"
-            />
-          </div>
-          <div class="control-group flex-row-between">
-            <label for="toggle-polyphonic"
-              >Enable Polyphonic Pinyin (GSUB)</label
-            >
-            <label class="switch">
-              <input type="checkbox" id="toggle-polyphonic" checked />
-              <span class="slider round"></span>
-            </label>
-          </div>
-          <button id="btn-build-font" class="btn btn-primary">
-            <i class="fa-solid fa-gears"></i> Build Font Assets
-          </button>
 
-          <div
-            id="build-status-container"
-            class="build-status-card"
-            style="display: none"
-          >
-            <div class="build-status-header">
-              <span id="build-status-badge" class="badge">Idle</span>
-              <span
-                id="build-status-time"
-                class="font-mono text-[10px] text-slate-500"
-              ></span>
-            </div>
-            <pre id="build-logs" class="build-logs-box"></pre>
-            <div
-              id="build-download-links"
-              class="build-downloads"
-              style="display: none"
-            >
-              <a
-                id="link-download-ttf"
-                href="#"
-                class="btn btn-small btn-primary"
-                download
-                ><i class="fa-solid fa-download"></i> TTF</a
-              >
-              <a
-                id="link-download-woff2"
-                href="#"
-                class="btn btn-small btn-secondary"
-                download
-                ><i class="fa-solid fa-download"></i> WOFF2</a
-              >
-            </div>
-          </div>
-        </div>
       </section>
 
       <!-- Content Area: Simulation & Outputs -->
@@ -533,26 +433,33 @@
                 <div class="vector-svg-container" id="svg-preview-container">
                   <!-- The live rendering SVG will go here -->
                 </div>
-                <div class="font-loading-status" id="font-loading-banner">
+                <div class="font-loading-status" id="font-loading-banner" style="display: none;">
                   <i class="fa-solid fa-circle-notch fa-spin"></i> Loading
                   DroidSansFallbackFull.ttf...
                 </div>
               </div>
 
-              <!-- Configuration Exporter -->
-              <div class="config-exporter-box">
-                <div class="config-header">
-                  <h4>Generated CLI Config File (`config.ts`)</h4>
-                  <button
-                    id="btn-copy-config"
-                    class="btn btn-small btn-secondary"
-                  >
-                    <i class="fa-solid fa-copy"></i> Copy
-                  </button>
+              <!-- Choose Syllable Panel -->
+              <div class="panel-section" id="section-choose-syllable" style="box-shadow: none; border-color: var(--border-color); background-color: var(--bg-app); margin: 0;">
+                <h3 style="font-size: 0.95rem; font-weight: 700; margin: 0; color: var(--text-primary);">Choose a Test Syllable</h3>
+                <div id="syllable-presets" class="preset-grid">
+                  <!-- Dynamically populated -->
                 </div>
-                <pre class="code-block"><code id="code-config-output">
-// Loading...
-              </code></pre>
+                <div class="custom-input-group">
+                  <div class="input-field">
+                    <label for="input-custom-hanzi">Hanzi</label>
+                    <input
+                      type="text"
+                      id="input-custom-hanzi"
+                      maxlength="1"
+                      placeholder="字"
+                    />
+                  </div>
+                  <div class="input-field">
+                    <label for="input-custom-pinyin">Pinyin</label>
+                    <input type="text" id="input-custom-pinyin" placeholder="zì" />
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -586,6 +493,57 @@
               </div>
             </div>
             <div class="card-body tester-body">
+              <!-- Font Compiler & Manager Grid -->
+              <div class="tester-manager-grid">
+                <!-- Compiler Card -->
+                <div class="manager-card font-compiler-card">
+                  <h4><i class="fa-solid fa-gears"></i> Compile New Font</h4>
+                  <div class="compiler-row">
+                    <div class="input-field-inline">
+                      <label for="input-font-name">Font Name</label>
+                      <input
+                        type="text"
+                        id="input-font-name"
+                        value="ruby-font-creator"
+                        placeholder="ruby-font-creator"
+                      />
+                    </div>
+                    <div class="flex-align-center" style="gap: 0.5rem; margin: 0.5rem 0;">
+                      <label for="toggle-polyphonic" style="font-size: 0.72rem; color: var(--text-secondary); font-weight: 600;">Polyphonic Pinyin (GSUB)</label>
+                      <label class="switch">
+                        <input type="checkbox" id="toggle-polyphonic" checked />
+                        <span class="slider round"></span>
+                      </label>
+                    </div>
+                    <button id="btn-build-font" class="btn btn-primary" style="margin-top: 0.5rem; width: 100%;">
+                      Build Font Assets
+                    </button>
+                  </div>
+
+                  <div id="build-status-container" class="build-status-card" style="display: none; margin-top: 1rem;">
+                    <div class="build-status-header">
+                      <span id="build-status-badge" class="badge">Idle</span>
+                      <span id="build-status-time" class="font-mono text-[10px] text-slate-500"></span>
+                    </div>
+                    <pre id="build-logs" class="build-logs-box"></pre>
+                    <div id="build-download-links" class="build-downloads" style="display: none">
+                      <a id="link-download-ttf" href="#" class="btn btn-small btn-primary" download><i class="fa-solid fa-download"></i> TTF</a>
+                      <a id="link-download-woff2" href="#" class="btn btn-small btn-secondary" download><i class="fa-solid fa-download"></i> WOFF2</a>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Stored Fonts Library -->
+                <div class="manager-card font-list-card">
+                  <h4><i class="fa-solid fa-database"></i> Stored Fonts Library</h4>
+                  <div id="stored-fonts-list" class="stored-fonts-list">
+                    <!-- Dynamically populated list of stored fonts -->
+                  </div>
+                </div>
+              </div>
+
+              <hr class="section-divider" style="border: 0; border-top: 1px solid var(--border-color); margin: 1.5rem 0;" />
+
               <div class="tester-controls-grid">
                 <div class="control-group range-control">
                   <div class="range-labels">

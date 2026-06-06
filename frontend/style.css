@@ -31,19 +31,50 @@
   --transition-normal: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   --shadow-premium: 0 10px 30px -10px rgba(0, 0, 0, 0.7);
   --shadow-glow: 0 0 20px rgba(99, 102, 241, 0.1);
+
+  /* Theme-specific Component Overrides (Dark Mode Default) */
+  --bg-panel: rgba(15, 23, 42, 0.4);
+  --bg-range: rgba(3, 7, 18, 0.35);
+  --bg-logs: rgba(0, 0, 0, 0.4);
+  --bg-card-footer: rgba(3, 7, 18, 0.25);
+  --shadow-inset: inset 0 4px 15px rgba(0, 0, 0, 0.4);
+  --shadow-inset-small: inset 0 2px 8px rgba(0, 0, 0, 0.3);
+  --bg-header: linear-gradient(
+    180deg,
+    var(--bg-sidebar) 0%,
+    rgba(11, 17, 32, 0.8) 100%
+  );
 }
 
 /* Light Theme overrides (Toggled via header btn) */
 :root.light-mode {
-  --bg-app: #f8fafc;
+  --bg-app: #f1f5f9; /* Soft cool grey */
   --bg-sidebar: #ffffff;
-  --bg-card: #f1f5f9;
-  --bg-card-hover: #e2e8f0;
-  --border-color: #cbd5e1;
+  --bg-card: #ffffff;
+  --bg-card-hover: #f8fafc;
+  --border-color: rgba(99, 102, 241, 0.12); /* Soft indigo tint */
+  --border-glow: rgba(99, 102, 241, 0.05);
+
   --text-primary: #0f172a;
   --text-secondary: #475569;
-  --text-muted: #64748b;
-  --border-glow: rgba(99, 102, 241, 0.08);
+  --text-muted: #94a3b8;
+
+  --color-indigo: #4f46e5; /* Slightly deeper indigo for light mode accessibility */
+  --shadow-premium: 0 10px 30px -10px rgba(99, 102, 241, 0.08);
+  --shadow-glow: 0 0 20px rgba(99, 102, 241, 0.05);
+
+  /* Theme-specific Component Overrides (Light Mode) */
+  --bg-panel: rgba(99, 102, 241, 0.03); /* Extremely clean light purple tint */
+  --bg-range: rgba(99, 102, 241, 0.02);
+  --bg-logs: #f8fafc;
+  --bg-card-footer: rgba(99, 102, 241, 0.02);
+  --shadow-inset: inset 0 2px 8px rgba(99, 102, 241, 0.04);
+  --shadow-inset-small: inset 0 1px 4px rgba(99, 102, 241, 0.03);
+  --bg-header: linear-gradient(
+    180deg,
+    var(--bg-sidebar) 0%,
+    rgba(241, 245, 249, 0.9) 100%
+  );
 }
 
 /* Reset & Base Styles */
@@ -68,11 +99,7 @@ body {
 
 /* Header */
 .app-header {
-  background: linear-gradient(
-    180deg,
-    var(--bg-sidebar) 0%,
-    rgba(11, 17, 32, 0.8) 100%
-  );
+  background: var(--bg-header);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border-color);
   padding: 1rem 1.5rem;
@@ -149,7 +176,7 @@ body {
   width: 100%;
   margin: 0 auto;
   display: grid;
-  grid-template-columns: 350px 1fr;
+  grid-template-columns: 400px 1fr;
   height: calc(100vh - 73px);
   overflow: hidden;
 }
@@ -190,17 +217,17 @@ body {
   border-right: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: 0.75rem;
 }
 
 .panel-section {
-  background-color: rgba(15, 23, 42, 0.4);
+  background-color: var(--bg-panel);
   border: 1px solid var(--border-color);
   border-radius: 1rem;
-  padding: 1.25rem;
+  padding: 1rem;
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 0.85rem;
   box-shadow: var(--shadow-premium);
 }
 
@@ -395,7 +422,7 @@ body {
 
 /* Range sliders custom */
 .range-control {
-  background-color: rgba(3, 7, 18, 0.35);
+  background-color: var(--bg-range);
   border: 1px solid var(--border-color);
   border-radius: 0.75rem;
   padding: 0.75rem 1rem;
@@ -957,7 +984,7 @@ body {
 
 .extra-controls-grid {
   margin-top: 1.5rem;
-  background-color: rgba(3, 7, 18, 0.25);
+  background-color: var(--bg-card-footer);
   border: 1px solid var(--border-color);
   border-radius: 1rem;
   padding: 1.25rem;
@@ -1061,7 +1088,7 @@ body {
   font-family: var(--font-serif);
   color: var(--text-primary);
   position: relative;
-  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-inset-small);
 }
 
 .textbook-pinyin {
@@ -1097,7 +1124,7 @@ body {
 
 .textbook-footer-card {
   margin-top: 1.25rem;
-  background-color: rgba(3, 7, 18, 0.25);
+  background-color: var(--bg-card-footer);
   border: 1px solid var(--border-color);
   border-radius: 1rem;
   padding: 1rem 1.25rem;
@@ -1174,7 +1201,7 @@ body {
   align-items: center;
   justify-content: center;
   position: relative;
-  box-shadow: inset 0 4px 15px rgba(0, 0, 0, 0.6);
+  box-shadow: var(--shadow-inset);
   padding: 2rem;
 }
 
@@ -1193,7 +1220,7 @@ body {
   max-height: 320px;
   border: 1px solid var(--border-color);
   border-radius: 0.5rem;
-  background-color: #0b1120;
+  background-color: var(--bg-sidebar);
   box-shadow: var(--shadow-premium);
   display: block;
 }
@@ -1329,7 +1356,7 @@ body {
 }
 
 .build-logs-box {
-  background-color: rgba(0, 0, 0, 0.4);
+  background-color: var(--bg-logs);
   border: 1px solid var(--border-color);
   border-radius: 0.5rem;
   padding: 0.5rem;
@@ -1433,7 +1460,7 @@ body {
   overflow-y: auto;
   font-size: 32px;
   line-height: 1.8;
-  box-shadow: inset 0 4px 15px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-inset);
   word-break: break-all;
   white-space: pre-wrap;
   transition:
@@ -1459,4 +1486,62 @@ body {
   color: var(--text-secondary);
   font-size: 0.72rem;
   line-height: 1.4;
+}
+
+.sidebar-sliders-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem 0.6rem;
+}
+.sidebar-sliders-grid .control-group {
+  margin: 0;
+}
+
+.tester-manager-grid {
+  display: grid;
+  grid-template-columns: 1.2fr 1.8fr;
+  gap: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+
+@media (max-width: 900px) {
+  .tester-manager-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.manager-card {
+  background-color: var(--bg-app);
+  border: 1px solid var(--border-color);
+  border-radius: 0.75rem;
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.manager-card h4 {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 0.5rem;
+}
+
+.compiler-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.stored-fonts-list {
+  max-height: 140px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
