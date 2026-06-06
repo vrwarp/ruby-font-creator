@@ -1429,43 +1429,33 @@ body {
   margin-bottom: 0.5rem;
 }
 
+.unified-tester-box {
+  grid-column: span 2;
+  width: 100%;
+}
+
 #tester-text-input {
   width: 100%;
-  height: 200px;
+  height: 320px;
   background-color: var(--bg-app);
   border: 1px solid var(--border-color);
   border-radius: 0.75rem;
-  padding: 1rem;
+  padding: 1.5rem;
   color: var(--text-primary);
-  font-family: var(--font-sans);
-  font-size: 1rem;
+  font-size: 32px;
+  line-height: 1.8;
   resize: vertical;
-  transition: all var(--transition-fast);
+  word-break: break-all;
+  box-shadow: var(--shadow-inset);
+  transition: all var(--transition-fast),
+              font-size var(--transition-fast),
+              line-height var(--transition-fast);
 }
 
 #tester-text-input:focus {
   outline: none;
   border-color: var(--color-indigo);
   box-shadow: var(--shadow-glow);
-}
-
-.tester-render-area {
-  width: 100%;
-  height: 200px;
-  background-color: var(--bg-app);
-  border: 1px solid var(--border-color);
-  border-radius: 0.75rem;
-  padding: 1rem;
-  color: var(--text-primary);
-  overflow-y: auto;
-  font-size: 32px;
-  line-height: 1.8;
-  box-shadow: var(--shadow-inset);
-  word-break: break-all;
-  white-space: pre-wrap;
-  transition:
-    font-size var(--transition-fast),
-    line-height var(--transition-fast);
 }
 
 .info-note-card {

@@ -480,7 +480,6 @@ const elements = {
   testerTextInput: document.getElementById(
     'tester-text-input',
   ) as HTMLTextAreaElement,
-  testerPreviewRender: document.getElementById('tester-preview-render')!,
 }
 
 // Start Initialize
@@ -646,13 +645,12 @@ function syncUIFromState() {
   elements.rangeTesterLineHeight.value = state.testerLineHeight.toString()
   elements.valTesterLineHeight.textContent = state.testerLineHeight.toString()
   elements.testerTextInput.value = state.testerText
-  elements.testerPreviewRender.textContent = state.testerText
   if (state.testerActiveFontFamily) {
-    elements.testerPreviewRender.style.fontFamily = `'${state.testerActiveFontFamily}', sans-serif`
+    elements.testerTextInput.style.fontFamily = `'${state.testerActiveFontFamily}', sans-serif`
     elements.testerFontStatus.className = 'badge badge-success'
     elements.testerFontStatus.textContent = `Active: ${state.testerActiveFontFamily}`
   } else {
-    elements.testerPreviewRender.style.fontFamily = 'var(--font-serif)'
+    elements.testerTextInput.style.fontFamily = 'var(--font-serif)'
     elements.testerFontStatus.className = 'badge badge-warning'
     elements.testerFontStatus.textContent = 'No Font Loaded'
   }
@@ -1061,7 +1059,10 @@ function setupEventListeners() {
 
   elements.testerFontSelect.addEventListener('change', async (e) => {
     const selected = (e.target as HTMLSelectElement).value
-    if (selected === 'live') {
+    if (selected === 'default') {
+      state.testerActiveFontFamily = ''
+      updateUI()
+    } else if (selected === 'live') {
       triggerLiveFontBuild()
     } else if (selected) {
       try {
@@ -1851,17 +1852,15 @@ function debouncedLiveFontBuild() {
 }
 
 function renderTester() {
-  elements.testerPreviewRender.textContent = state.testerText
-  elements.testerPreviewRender.style.fontSize = `${state.testerFontSize}px`
-  elements.testerPreviewRender.style.lineHeight =
-    state.testerLineHeight.toString()
+  elements.testerTextInput.style.fontSize = `${state.testerFontSize}px`
+  elements.testerTextInput.style.lineHeight = state.testerLineHeight.toString()
   elements.valTesterFontSize.textContent = `${state.testerFontSize}px`
   elements.valTesterLineHeight.textContent = state.testerLineHeight.toFixed(1)
 
   if (state.testerActiveFontFamily) {
-    elements.testerPreviewRender.style.fontFamily = `'${state.testerActiveFontFamily}', sans-serif`
+    elements.testerTextInput.style.fontFamily = `'${state.testerActiveFontFamily}', sans-serif`
   } else {
-    elements.testerPreviewRender.style.fontFamily = 'var(--font-serif)'
+    elements.testerTextInput.style.fontFamily = 'var(--font-serif)'
   }
 
   if (elements.testerFontSelect.value === 'live') {
@@ -1887,7 +1886,7 @@ async function loadGeneratedFont(
     document.fonts.add(fontFace)
 
     state.testerActiveFontFamily = fontName
-    elements.testerPreviewRender.style.fontFamily = `'${fontName}', sans-serif`
+    elements.testerTextInput.style.fontFamily = `'${fontName}', sans-serif`
     elements.testerFontStatus.className = 'badge badge-success'
     elements.testerFontStatus.textContent = `Active: ${fontName}`
 
@@ -2027,6 +2026,12 @@ async function fetchAndPopulateFonts(selectFontName?: string) {
     // Populate dropdown selector
     elements.testerFontSelect.innerHTML = ''
 
+    // Always add default option
+    const defaultOption = document.createElement('option')
+    defaultOption.value = 'default'
+    defaultOption.textContent = 'Default Font'
+    elements.testerFontSelect.appendChild(defaultOption)
+
     // Always add live option
     const liveOption = document.createElement('option')
     liveOption.value = 'live'
@@ -2041,10 +2046,15 @@ async function fetchAndPopulateFonts(selectFontName?: string) {
       elements.testerFontSelect.appendChild(option)
     })
 
-    // Auto-select font: use parameter first, then current active state, fallback to live
-    const targetFont = selectFontName || state.testerActiveFontFamily || 'live'
+    // Auto-select font: use parameter first, then current active state, fallback to default
+    const targetFont =
+      selectFontName || state.testerActiveFontFamily || 'default'
 
-    if (targetFont === 'live') {
+    if (targetFont === 'default') {
+      elements.testerFontSelect.value = 'default'
+      state.testerActiveFontFamily = ''
+      updateUI()
+    } else if (targetFont === 'live') {
       elements.testerFontSelect.value = 'live'
       triggerLiveFontBuild()
     } else if (fontNames.includes(targetFont)) {
