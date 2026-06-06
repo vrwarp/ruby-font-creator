@@ -178,7 +178,8 @@
             <div class="control-group range-control">
               <div class="range-labels">
                 <span class="range-name"
-                  ><i class="fa-solid fa-arrows-left-right-to-line"></i> Squeeze</span
+                  ><i class="fa-solid fa-arrows-left-right-to-line"></i>
+                  Squeeze</span
                 >
                 <span class="range-value" id="val-optical-squeeze">65%</span>
               </div>
@@ -198,7 +199,9 @@
                 <span class="range-name"
                   ><i class="fa-solid fa-left-right"></i> Tracking</span
                 >
-                <span class="range-value" id="val-letter-tracking">-0.040em</span>
+                <span class="range-value" id="val-letter-tracking"
+                  >-0.040em</span
+                >
               </div>
               <input
                 type="range"
@@ -243,8 +246,6 @@
             </div>
           </div>
         </div>
-
-
       </section>
 
       <!-- Content Area: Simulation & Outputs -->
@@ -433,15 +434,37 @@
                 <div class="vector-svg-container" id="svg-preview-container">
                   <!-- The live rendering SVG will go here -->
                 </div>
-                <div class="font-loading-status" id="font-loading-banner" style="display: none;">
+                <div
+                  class="font-loading-status"
+                  id="font-loading-banner"
+                  style="display: none"
+                >
                   <i class="fa-solid fa-circle-notch fa-spin"></i> Loading
                   DroidSansFallbackFull.ttf...
                 </div>
               </div>
 
               <!-- Choose Syllable Panel -->
-              <div class="panel-section" id="section-choose-syllable" style="box-shadow: none; border-color: var(--border-color); background-color: var(--bg-app); margin: 0;">
-                <h3 style="font-size: 0.95rem; font-weight: 700; margin: 0; color: var(--text-primary);">Choose a Test Syllable</h3>
+              <div
+                class="panel-section"
+                id="section-choose-syllable"
+                style="
+                  box-shadow: none;
+                  border-color: var(--border-color);
+                  background-color: var(--bg-app);
+                  margin: 0;
+                "
+              >
+                <h3
+                  style="
+                    font-size: 0.95rem;
+                    font-weight: 700;
+                    margin: 0;
+                    color: var(--text-primary);
+                  "
+                >
+                  Choose a Test Syllable
+                </h3>
                 <div id="syllable-presets" class="preset-grid">
                   <!-- Dynamically populated -->
                 </div>
@@ -457,7 +480,11 @@
                   </div>
                   <div class="input-field">
                     <label for="input-custom-pinyin">Pinyin</label>
-                    <input type="text" id="input-custom-pinyin" placeholder="zì" />
+                    <input
+                      type="text"
+                      id="input-custom-pinyin"
+                      placeholder="zì"
+                    />
                   </div>
                 </div>
               </div>
@@ -508,41 +535,88 @@
                         placeholder="ruby-font-creator"
                       />
                     </div>
-                    <div class="flex-align-center" style="gap: 0.5rem; margin: 0.5rem 0;">
-                      <label for="toggle-polyphonic" style="font-size: 0.72rem; color: var(--text-secondary); font-weight: 600;">Polyphonic Pinyin (GSUB)</label>
+                    <div
+                      class="flex-align-center"
+                      style="gap: 0.5rem; margin: 0.5rem 0"
+                    >
+                      <label
+                        for="toggle-polyphonic"
+                        style="
+                          font-size: 0.72rem;
+                          color: var(--text-secondary);
+                          font-weight: 600;
+                        "
+                        >Polyphonic Pinyin (GSUB)</label
+                      >
                       <label class="switch">
                         <input type="checkbox" id="toggle-polyphonic" checked />
                         <span class="slider round"></span>
                       </label>
                     </div>
-                    <button id="btn-build-font" class="btn btn-primary" style="margin-top: 0.5rem; width: 100%;">
+                    <button
+                      id="btn-build-font"
+                      class="btn btn-primary"
+                      style="margin-top: 0.5rem; width: 100%"
+                    >
                       Build Font Assets
                     </button>
                   </div>
 
-                  <div id="build-status-container" class="build-status-card" style="display: none; margin-top: 1rem;">
+                  <div
+                    id="build-status-container"
+                    class="build-status-card"
+                    style="display: none; margin-top: 1rem"
+                  >
                     <div class="build-status-header">
                       <span id="build-status-badge" class="badge">Idle</span>
-                      <span id="build-status-time" class="font-mono text-[10px] text-slate-500"></span>
+                      <span
+                        id="build-status-time"
+                        class="font-mono text-[10px] text-slate-500"
+                      ></span>
                     </div>
                     <pre id="build-logs" class="build-logs-box"></pre>
-                    <div id="build-download-links" class="build-downloads" style="display: none">
-                      <a id="link-download-ttf" href="#" class="btn btn-small btn-primary" download><i class="fa-solid fa-download"></i> TTF</a>
-                      <a id="link-download-woff2" href="#" class="btn btn-small btn-secondary" download><i class="fa-solid fa-download"></i> WOFF2</a>
+                    <div
+                      id="build-download-links"
+                      class="build-downloads"
+                      style="display: none"
+                    >
+                      <a
+                        id="link-download-ttf"
+                        href="#"
+                        class="btn btn-small btn-primary"
+                        download
+                        ><i class="fa-solid fa-download"></i> TTF</a
+                      >
+                      <a
+                        id="link-download-woff2"
+                        href="#"
+                        class="btn btn-small btn-secondary"
+                        download
+                        ><i class="fa-solid fa-download"></i> WOFF2</a
+                      >
                     </div>
                   </div>
                 </div>
 
                 <!-- Stored Fonts Library -->
                 <div class="manager-card font-list-card">
-                  <h4><i class="fa-solid fa-database"></i> Stored Fonts Library</h4>
+                  <h4>
+                    <i class="fa-solid fa-database"></i> Stored Fonts Library
+                  </h4>
                   <div id="stored-fonts-list" class="stored-fonts-list">
                     <!-- Dynamically populated list of stored fonts -->
                   </div>
                 </div>
               </div>
 
-              <hr class="section-divider" style="border: 0; border-top: 1px solid var(--border-color); margin: 1.5rem 0;" />
+              <hr
+                class="section-divider"
+                style="
+                  border: 0;
+                  border-top: 1px solid var(--border-color);
+                  margin: 1.5rem 0;
+                "
+              />
 
               <div class="tester-controls-grid">
                 <div class="control-group range-control">
