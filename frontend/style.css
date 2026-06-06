@@ -1447,9 +1447,10 @@ body {
   resize: vertical;
   word-break: break-all;
   box-shadow: var(--shadow-inset);
-  transition: all var(--transition-fast),
-              font-size var(--transition-fast),
-              line-height var(--transition-fast);
+  transition:
+    all var(--transition-fast),
+    font-size var(--transition-fast),
+    line-height var(--transition-fast);
 }
 
 #tester-text-input:focus {
