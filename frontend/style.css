@@ -1536,3 +1536,211 @@ body {
   flex-direction: column;
   gap: 0.5rem;
 }
+
+/* Pinyin Font Settings Styles */
+.select-control {
+  width: 100%;
+  padding: 0.5rem;
+  background-color: var(--bg-app);
+  border: 1px solid var(--border-color);
+  border-radius: 0.5rem;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 0.8rem;
+  outline: none;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.select-control:hover,
+.select-control:focus {
+  border-color: var(--color-indigo);
+}
+
+.upload-zone {
+  border: 2px dashed var(--border-color);
+  border-radius: 0.75rem;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  background-color: var(--bg-app);
+  transition: all var(--transition-fast);
+  text-align: center;
+}
+
+.upload-zone:hover,
+.upload-zone.dragover {
+  border-color: var(--color-indigo);
+  background-color: rgba(99, 102, 241, 0.05);
+}
+
+.upload-icon {
+  font-size: 1.5rem;
+  color: var(--text-muted);
+  transition: color var(--transition-fast);
+}
+
+.upload-zone:hover .upload-icon,
+.upload-zone.dragover .upload-icon {
+  color: var(--color-indigo);
+}
+
+.upload-text {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+}
+
+.audit-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 0.25rem;
+  margin-top: 0.5rem;
+}
+
+.audit-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  border-radius: 4px;
+  font-family: var(--font-sans);
+  font-size: 0.7rem;
+  font-weight: 600;
+  transition: all var(--transition-fast);
+}
+
+.audit-badge.present {
+  background-color: rgba(16, 185, 129, 0.12);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
+.audit-badge.missing {
+  background-color: rgba(244, 63, 94, 0.12);
+  color: #f43f5e;
+  border: 1px solid rgba(244, 63, 94, 0.25);
+}
+
+.pinyin-actions-row {
+  display: flex;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.status-box {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  border-radius: 0.5rem;
+  background-color: var(--bg-app);
+  border: 1px solid var(--border-color);
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  animation: fadeIn 0.2s ease-in-out;
+}
+
+.status-spinner {
+  color: var(--color-indigo);
+}
+
+.status-message {
+  font-weight: 500;
+}
+
+/* Unified Font Manager Layout */
+.manager-tab-grid {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+@media (max-width: 1024px) {
+  .manager-tab-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.pinyin-manager-cols {
+  display: grid;
+  grid-template-columns: 1fr 1.2fr;
+  gap: 2rem;
+}
+
+@media (max-width: 768px) {
+  .pinyin-manager-cols {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+}
+
+.pinyin-log-container {
+  border: 1px solid var(--border-color);
+  border-radius: 0.75rem;
+  overflow: hidden;
+  background-color: #090d16;
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.pinyin-log-header {
+  background-color: #111827;
+  padding: 0.4rem 0.75rem;
+  border-bottom: 1px solid var(--border-color);
+  font-family: var(--font-sans);
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.pinyin-patch-logs-box {
+  padding: 0.75rem;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: #10b981;
+  background-color: transparent;
+  max-height: 160px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  margin: 0;
+  border: 0;
+  line-height: 1.4;
+}
+
+.pinyin-manager-preview-box {
+  padding: 1.25rem;
+  background-color: var(--bg-app);
+  border: 1px solid var(--border-color);
+  border-radius: 0.75rem;
+  font-size: 1.4rem;
+  font-weight: 500;
+  text-align: center;
+  color: var(--text-primary);
+  letter-spacing: 0.08em;
+  line-height: 1.6;
+  white-space: normal;
+  word-break: break-word;
+  transition: all var(--transition-fast);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.pinyin-manager-preview-box .preview-char.missing {
+  color: var(--color-rose);
+  font-family: var(--font-sans) !important;
+  font-weight: 600;
+  background-color: rgba(244, 63, 94, 0.08);
+  border: 1px dashed rgba(244, 63, 94, 0.4);
+  border-radius: 4px;
+  padding: 0 4px;
+  margin: 0 2px;
+  display: inline-block;
+  line-height: 1.2;
+}

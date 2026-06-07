@@ -294,6 +294,7 @@ const state = {
   // Layout & Alignment
   placement: 'top', // top | bottom
   pinyinFont: 'droid-sans', // droid-sans | pt-sans-regular | pt-sans-bold
+  managerSelectedFont: 'droid-sans',
   showGuides: false,
   characterWidth: 80,
 
@@ -360,7 +361,28 @@ const elements = {
   ) as HTMLInputElement,
 
   placementControl: document.getElementById('placement-control')!,
-  pinyinFontControl: document.getElementById('pinyin-font-control')!,
+  pinyinFontSelect: document.getElementById(
+    'pinyin-font-select',
+  ) as HTMLSelectElement,
+  pinyinUploadZone: document.getElementById('pinyin-upload-zone')!,
+  pinyinFileInput: document.getElementById(
+    'pinyin-file-input',
+  ) as HTMLInputElement,
+  auditSummaryBadge: document.getElementById('audit-summary-badge')!,
+  auditGlyphGrid: document.getElementById('audit-glyph-grid')!,
+  btnPatchPinyin: document.getElementById(
+    'btn-patch-pinyin',
+  ) as HTMLButtonElement,
+  btnDeletePinyin: document.getElementById(
+    'btn-delete-pinyin',
+  ) as HTMLButtonElement,
+  pinyinStatusBox: document.getElementById('pinyin-status-box')!,
+  pinyinPatchLogs: document.getElementById('pinyin-patch-logs')!,
+  managerFontSelect: document.getElementById(
+    'manager-font-select',
+  ) as HTMLSelectElement,
+  btnUsePinyin: document.getElementById('btn-use-pinyin') as HTMLButtonElement,
+  pinyinManagerPreview: document.getElementById('pinyin-manager-preview')!,
   toggleGuides: document.getElementById('toggle-guides') as HTMLInputElement,
   rangeCharacterWidth: document.getElementById(
     'range-character-width',
@@ -604,15 +626,10 @@ function syncUIFromState() {
     )
   })
 
-  // Pinyin Font segmented control
-  document
-    .querySelectorAll('#pinyin-font-control .segment-btn')
-    .forEach((b) => {
-      b.classList.toggle(
-        'active',
-        b.getAttribute('data-font') === state.pinyinFont,
-      )
-    })
+  // Pinyin Font select
+  if (elements.pinyinFontSelect) {
+    elements.pinyinFontSelect.value = state.pinyinFont
+  }
 
   // Strategy segmented control
   document.querySelectorAll('#strategy-control .segment-btn').forEach((b) => {
@@ -656,13 +673,397 @@ function syncUIFromState() {
   }
 }
 
+// --- Pinyin Font Settings Management ---
+const PINYIN_REQUIRED_CHARS = [
+  'ā',
+  'á',
+  'ǎ',
+  'à',
+  'ē',
+  'é',
+  'ě',
+  'è',
+  'ī',
+  'í',
+  'ǐ',
+  'ì',
+  'ō',
+  'ó',
+  'ǒ',
+  'ò',
+  'ū',
+  'ú',
+  'ǔ',
+  'ù',
+  'ü',
+  'ǖ',
+  'ǘ',
+  'ǚ',
+  'ǜ',
+]
+
+function auditFontCoverage(font: opentype.Font): {
+  present: string[]
+  missing: string[]
+} {
+  const present: string[] = []
+  const missing: string[] = []
+  for (const char of PINYIN_REQUIRED_CHARS) {
+    const glyph = font.charToGlyph(char)
+    if (glyph && glyph.index > 0) {
+      present.push(char)
+    } else {
+      missing.push(char)
+    }
+  }
+  return { present, missing }
+}
+
+function clearPinyinLogs() {
+  elements.pinyinPatchLogs.textContent = ''
+  elements.pinyinStatusBox.style.display = 'block'
+}
+
+function showPinyinStatus(msg: string, showSpinner: boolean) {
+  if (msg) {
+    elements.pinyinStatusBox.style.display = 'block'
+    elements.pinyinPatchLogs.textContent += msg + '\n'
+    elements.pinyinPatchLogs.scrollTop = elements.pinyinPatchLogs.scrollHeight
+    const spinner = elements.pinyinStatusBox.querySelector(
+      '.status-spinner',
+    ) as HTMLElement
+    if (spinner) {
+      spinner.style.display = showSpinner ? 'inline-block' : 'none'
+    }
+  } else {
+    elements.pinyinStatusBox.style.display = 'none'
+    elements.pinyinPatchLogs.textContent = ''
+  }
+}
+
+async function refreshPinyinFontsDropdown(selectedName?: string) {
+  try {
+    const { listPinyinFonts } = await import('./db.js')
+    const customFonts = await listPinyinFonts()
+
+    elements.pinyinFontSelect.innerHTML = ''
+    elements.managerFontSelect.innerHTML = ''
+
+    const systemFonts = [
+      { value: 'droid-sans', text: 'Droid Sans (System)' },
+      { value: 'pt-sans-regular', text: 'PT Sans Regular (System)' },
+      { value: 'pt-sans-bold', text: 'PT Sans Bold (System)' },
+    ]
+
+    systemFonts.forEach((f) => {
+      const opt = document.createElement('option')
+      opt.value = f.value
+      opt.textContent = f.text
+      elements.pinyinFontSelect.appendChild(opt)
+
+      const optM = document.createElement('option')
+      optM.value = f.value
+      optM.textContent = f.text
+      elements.managerFontSelect.appendChild(optM)
+    })
+
+    customFonts.forEach((f) => {
+      const opt = document.createElement('option')
+      opt.value = f.name
+      opt.textContent = `${f.displayName}${f.isPatched ? ' (Patched)' : ''}`
+      elements.pinyinFontSelect.appendChild(opt)
+
+      const optM = document.createElement('option')
+      optM.value = f.name
+      optM.textContent = `${f.displayName}${f.isPatched ? ' (Patched)' : ''}`
+      elements.managerFontSelect.appendChild(optM)
+    })
+
+    const target = state.pinyinFont || 'droid-sans'
+    elements.pinyinFontSelect.value = target
+
+    const managedTarget =
+      selectedName || state.managerSelectedFont || 'droid-sans'
+    elements.managerFontSelect.value = managedTarget
+    state.managerSelectedFont = managedTarget
+
+    await auditActivePinyinFont()
+  } catch (err) {
+    console.error('Failed to refresh pinyin fonts list:', err)
+  }
+}
+
+async function auditActivePinyinFont() {
+  try {
+    const fontKey = state.managerSelectedFont
+    const engine = await getAnnotationFontEngine(fontKey)
+    const font = engine.font
+    const { present, missing } = auditFontCoverage(font)
+
+    elements.auditSummaryBadge.textContent = `${missing.length}/${PINYIN_REQUIRED_CHARS.length} Missing`
+    if (missing.length === 0) {
+      elements.auditSummaryBadge.className = 'badge badge-success'
+      elements.btnPatchPinyin.disabled = true
+    } else {
+      elements.auditSummaryBadge.className = 'badge badge-danger'
+      const isSystem = [
+        'droid-sans',
+        'pt-sans-regular',
+        'pt-sans-bold',
+      ].includes(fontKey)
+      elements.btnPatchPinyin.disabled = isSystem
+    }
+
+    const isSystem = ['droid-sans', 'pt-sans-regular', 'pt-sans-bold'].includes(
+      fontKey,
+    )
+    elements.btnDeletePinyin.disabled = isSystem
+
+    elements.btnUsePinyin.disabled = state.pinyinFont === fontKey
+
+    elements.auditGlyphGrid.innerHTML = ''
+    PINYIN_REQUIRED_CHARS.forEach((char) => {
+      const badge = document.createElement('span')
+      badge.textContent = char
+      const isPresent = present.includes(char)
+      badge.className = `audit-badge ${isPresent ? 'present' : 'missing'}`
+      badge.title = isPresent ? `${char} is present` : `${char} is missing!`
+      elements.auditGlyphGrid.appendChild(badge)
+    })
+
+    elements.pinyinManagerPreview.innerHTML = ''
+    const previewString =
+      'ā á ǎ à  ē é ě è  ī í ǐ ì  ō ó ǒ ò  ū ú ǔ ù  ü ǖ ǘ ǚ ǜ'
+    for (const char of previewString) {
+      if (char === ' ') {
+        elements.pinyinManagerPreview.appendChild(document.createTextNode(' '))
+      } else {
+        const span = document.createElement('span')
+        if (missing.includes(char)) {
+          span.className = 'preview-char missing'
+          span.textContent = '☒'
+          span.title = `${char} is missing!`
+        } else {
+          span.className = 'preview-char'
+          span.textContent = char
+        }
+        elements.pinyinManagerPreview.appendChild(span)
+      }
+    }
+
+    try {
+      const fontName = `manager-${fontKey}`
+      let fontBuffer: ArrayBuffer
+      if (isSystem) {
+        let filename = 'DroidSansFallbackFull.ttf'
+        if (fontKey === 'pt-sans-regular') {
+          filename = 'PT_Sans-Narrow-Web-Regular.ttf'
+        } else if (fontKey === 'pt-sans-bold') {
+          filename = 'PT_Sans-Narrow-Web-Bold.ttf'
+        }
+        const res = await fetch(`./resources/fonts/${filename}?v=2.0.0`)
+        if (!res.ok) throw new Error('Failed to load system font file')
+        fontBuffer = await res.arrayBuffer()
+      } else {
+        const { getPinyinFont } = await import('./db.js')
+        const fontEntry = await getPinyinFont(fontKey)
+        if (!fontEntry) throw new Error('Font entry not found')
+        fontBuffer = fontEntry.ttf.buffer.slice(
+          fontEntry.ttf.byteOffset,
+          fontEntry.ttf.byteOffset + fontEntry.ttf.byteLength,
+        )
+      }
+      const fontFace = new FontFace(fontName, fontBuffer)
+      await fontFace.load()
+      document.fonts.add(fontFace)
+      elements.pinyinManagerPreview.style.fontFamily = `'${fontName}', sans-serif`
+    } catch (err) {
+      console.error('Failed to load preview FontFace:', err)
+      elements.pinyinManagerPreview.style.fontFamily = 'var(--font-sans)'
+    }
+  } catch (err) {
+    console.error('Audit failed:', err)
+  }
+}
+
+async function handlePinyinFontUpload(file: File) {
+  try {
+    showPinyinStatus('Reading font file...', true)
+    const buffer = await file.arrayBuffer()
+    const font = opentype.parse(buffer)
+
+    const displayName =
+      font.names.fontFamily?.en || file.name.replace(/\.[^/.]+$/, '')
+    const name = file.name.replace(/\.[^/.]+$/, '').replace(/\s+/g, '-')
+
+    const { savePinyinFont } = await import('./db.js')
+    await savePinyinFont({
+      name,
+      displayName,
+      ttf: new Uint8Array(buffer),
+      isSystem: false,
+      isPatched: false,
+      timestamp: Date.now(),
+    })
+
+    showPinyinStatus('Font uploaded successfully!', false)
+    setTimeout(() => showPinyinStatus('', false), 3000)
+
+    // Select and load uploaded font in the manager tab
+    state.managerSelectedFont = name
+    await refreshPinyinFontsDropdown(name)
+    updateUI()
+  } catch (err: any) {
+    console.error('Font upload failed:', err)
+    showPinyinStatus(`Upload failed: ${err.message}`, false)
+  }
+}
+
+function setupPinyinFontEvents() {
+  const zone = elements.pinyinUploadZone
+  const fileInput = elements.pinyinFileInput
+
+  zone.addEventListener('click', () => fileInput.click())
+
+  fileInput.addEventListener('change', () => {
+    const files = fileInput.files
+    if (files && files.length > 0) {
+      handlePinyinFontUpload(files[0])
+    }
+  })
+
+  zone.addEventListener('dragover', (e) => {
+    e.preventDefault()
+    zone.classList.add('dragover')
+  })
+
+  zone.addEventListener('dragleave', () => {
+    zone.classList.remove('dragover')
+  })
+
+  zone.addEventListener('drop', (e) => {
+    e.preventDefault()
+    zone.classList.remove('dragover')
+    const files = e.dataTransfer?.files
+    if (files && files.length > 0 && files[0].name.endsWith('.ttf')) {
+      handlePinyinFontUpload(files[0])
+    }
+  })
+
+  elements.managerFontSelect.addEventListener('change', () => {
+    state.managerSelectedFont = elements.managerFontSelect.value
+    auditActivePinyinFont()
+  })
+
+  elements.btnUsePinyin.addEventListener('click', () => {
+    const name = state.managerSelectedFont
+    state.pinyinFont = name
+    elements.pinyinFontSelect.value = name
+    elements.btnUsePinyin.disabled = true
+    updateUI()
+  })
+
+  elements.btnDeletePinyin.addEventListener('click', async () => {
+    const name = state.managerSelectedFont
+    if (['droid-sans', 'pt-sans-regular', 'pt-sans-bold'].includes(name)) return
+
+    if (
+      confirm(
+        `Are you sure you want to delete the custom pinyin font "${name}"?`,
+      )
+    ) {
+      try {
+        const { deletePinyinFont } = await import('./db.js')
+        await deletePinyinFont(name)
+        if (annotationFontEngines[name]) {
+          delete annotationFontEngines[name]
+        }
+        if (state.pinyinFont === name) {
+          state.pinyinFont = 'droid-sans'
+          elements.pinyinFontSelect.value = 'droid-sans'
+        }
+        state.managerSelectedFont = 'droid-sans'
+        await refreshPinyinFontsDropdown('droid-sans')
+        updateUI()
+      } catch (err) {
+        console.error('Failed to delete font:', err)
+      }
+    }
+  })
+
+  elements.btnPatchPinyin.addEventListener('click', async () => {
+    const fontKey = state.managerSelectedFont
+    if (['droid-sans', 'pt-sans-regular', 'pt-sans-bold'].includes(fontKey))
+      return
+
+    try {
+      clearPinyinLogs()
+      showPinyinStatus('Locating missing glyphs...', true)
+      const { getPinyinFont, savePinyinFont } = await import('./db.js')
+      const fontEntry = await getPinyinFont(fontKey)
+      if (!fontEntry) throw new Error('Selected font not found in database.')
+
+      const engine = await getAnnotationFontEngine(fontKey)
+      const { missing } = auditFontCoverage(engine.font)
+      if (missing.length === 0) {
+        showPinyinStatus('Font already has all required glyphs.', false)
+        return
+      }
+
+      showPinyinStatus('Fetching source Droid Sans Fallback...', true)
+      const res = await fetch('./resources/fonts/DroidSansFallbackFull.ttf')
+      if (!res.ok) throw new Error('Failed to load DroidSansFallbackFull.ttf')
+      const srcBuffer = await res.arrayBuffer()
+      const srcBytes = new Uint8Array(srcBuffer)
+
+      showPinyinStatus('Patching missing characters in browser...', true)
+      const { patchFontInBrowser } = await import('./compiler.js')
+      const patchedBytes = await patchFontInBrowser(
+        fontEntry.ttf,
+        srcBytes,
+        missing,
+        (msg) => {
+          showPinyinStatus(msg.trim(), true)
+        },
+      )
+
+      showPinyinStatus('Saving patched font...', true)
+      await savePinyinFont({
+        name: fontEntry.name,
+        displayName: fontEntry.displayName,
+        ttf: patchedBytes,
+        isSystem: false,
+        isPatched: true,
+        timestamp: Date.now(),
+      })
+
+      if (annotationFontEngines[fontKey]) {
+        delete annotationFontEngines[fontKey]
+      }
+
+      showPinyinStatus('Font successfully patched!', false)
+      setTimeout(() => showPinyinStatus('', false), 3000)
+
+      await refreshPinyinFontsDropdown(fontKey)
+      if (state.pinyinFont === fontKey) {
+        updateUI()
+      }
+    } catch (err: any) {
+      console.error('Patch failed:', err)
+      showPinyinStatus(`Patch failed: ${err.message}`, false)
+    }
+  })
+}
+
 function init() {
   setupTheme()
   setupPresets()
   setupEventListeners()
+  setupPinyinFontEvents()
   loadLocalFont()
   loadStateFromUrl()
   syncUIFromState()
+  refreshPinyinFontsDropdown()
   fetchAndPopulateFonts()
   updateUI()
 }
@@ -794,15 +1195,9 @@ function setupEventListeners() {
     updateUI()
   })
 
-  elements.pinyinFontControl.addEventListener('click', (e) => {
-    const btn = (e.target as HTMLElement).closest('button')
-    if (!btn) return
-    state.pinyinFont = btn.dataset.font || 'droid-sans'
-    document
-      .querySelectorAll('#pinyin-font-control .segment-btn')
-      .forEach((b) => {
-        b.classList.toggle('active', b === btn)
-      })
+  elements.pinyinFontSelect.addEventListener('change', () => {
+    state.pinyinFont = elements.pinyinFontSelect.value
+    auditActivePinyinFont()
     updateUI()
   })
 
@@ -1145,20 +1540,37 @@ async function getLocalFontEngine(): Promise<any> {
 async function getAnnotationFontEngine(fontKey: string): Promise<any> {
   if (annotationFontEngines[fontKey]) return annotationFontEngines[fontKey]
 
-  let filename = 'DroidSansFallbackFull.ttf'
-  if (fontKey === 'pt-sans-regular') {
-    filename = 'PT_Sans-Narrow-Web-Regular.ttf'
-  } else if (fontKey === 'pt-sans-bold') {
-    filename = 'PT_Sans-Narrow-Web-Bold.ttf'
-  }
+  const systemFontKeys = ['droid-sans', 'pt-sans-regular', 'pt-sans-bold']
+  if (systemFontKeys.includes(fontKey)) {
+    let filename = 'DroidSansFallbackFull.ttf'
+    if (fontKey === 'pt-sans-regular') {
+      filename = 'PT_Sans-Narrow-Web-Regular.ttf'
+    } else if (fontKey === 'pt-sans-bold') {
+      filename = 'PT_Sans-Narrow-Web-Bold.ttf'
+    }
 
-  const res = await fetch(`./resources/fonts/${filename}`)
-  if (!res.ok) throw new Error(`Failed to fetch annotation font ${filename}`)
-  const buffer = await res.arrayBuffer()
-  const font = opentype.parse(buffer)
-  const engine = new TextToSVG(font)
-  annotationFontEngines[fontKey] = engine
-  return engine
+    const res = await fetch(`./resources/fonts/${filename}?v=2.0.0`)
+    if (!res.ok) throw new Error(`Failed to fetch annotation font ${filename}`)
+    const buffer = await res.arrayBuffer()
+    const font = opentype.parse(buffer)
+    const engine = new TextToSVG(font)
+    annotationFontEngines[fontKey] = engine
+    return engine
+  } else {
+    const { getPinyinFont } = await import('./db.js')
+    const fontEntry = await getPinyinFont(fontKey)
+    if (!fontEntry) {
+      throw new Error(`Pinyin font not found in DB: ${fontKey}`)
+    }
+    const buffer = fontEntry.ttf.buffer.slice(
+      fontEntry.ttf.byteOffset,
+      fontEntry.ttf.byteOffset + fontEntry.ttf.byteLength,
+    )
+    const font = opentype.parse(buffer)
+    const engine = new TextToSVG(font)
+    annotationFontEngines[fontKey] = engine
+    return engine
+  }
 }
 
 // Helper to render vector preview SVGs locally in-browser

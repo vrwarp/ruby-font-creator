@@ -84,18 +84,10 @@
             </div>
           </div>
           <div class="control-group">
-            <label>Pinyin Font</label>
-            <div class="segmented-control" id="pinyin-font-control">
-              <button class="segment-btn active" data-font="droid-sans">
-                Droid Sans
-              </button>
-              <button class="segment-btn" data-font="pt-sans-regular">
-                PT Regular
-              </button>
-              <button class="segment-btn" data-font="pt-sans-bold">
-                PT Bold
-              </button>
-            </div>
+            <label for="pinyin-font-select">Pinyin Font</label>
+            <select id="pinyin-font-select" class="select-control">
+              <!-- Dynamically populated -->
+            </select>
           </div>
           <div class="control-group range-control">
             <div class="range-labels">
@@ -277,6 +269,9 @@
           </button>
           <button class="tab-btn" data-tab="tester">
             <i class="fa-solid fa-keyboard"></i> Compiled Font Tester
+          </button>
+          <button class="tab-btn" data-tab="manager">
+            <i class="fa-solid fa-font"></i> Font Manager
           </button>
         </div>
 
@@ -534,91 +529,81 @@
               </div>
             </div>
             <div class="card-body tester-body">
-              <!-- Font Compiler & Manager Grid -->
-              <div class="tester-manager-grid">
-                <!-- Compiler Card -->
-                <div class="manager-card font-compiler-card">
-                  <h4><i class="fa-solid fa-gears"></i> Compile New Font</h4>
-                  <div class="compiler-row">
-                    <div class="input-field-inline">
-                      <label for="input-font-name">Font Name</label>
-                      <input
-                        type="text"
-                        id="input-font-name"
-                        value="ruby-font-creator"
-                        placeholder="ruby-font-creator"
-                      />
-                    </div>
-                    <div
-                      class="flex-align-center"
-                      style="gap: 0.5rem; margin: 0.5rem 0"
-                    >
-                      <label
-                        for="toggle-polyphonic"
-                        style="
-                          font-size: 0.72rem;
-                          color: var(--text-secondary);
-                          font-weight: 600;
-                        "
-                        >Polyphonic Pinyin (GSUB)</label
-                      >
-                      <label class="switch">
-                        <input type="checkbox" id="toggle-polyphonic" checked />
-                        <span class="slider round"></span>
-                      </label>
-                    </div>
-                    <button
-                      id="btn-build-font"
-                      class="btn btn-primary"
-                      style="margin-top: 0.5rem; width: 100%"
-                    >
-                      Build Font Assets
-                    </button>
+              <!-- Compiler Card -->
+              <div
+                class="manager-card font-compiler-card"
+                style="margin-bottom: 1.5rem"
+              >
+                <h4><i class="fa-solid fa-gears"></i> Compile New Font</h4>
+                <div class="compiler-row">
+                  <div class="input-field-inline">
+                    <label for="input-font-name">Font Name</label>
+                    <input
+                      type="text"
+                      id="input-font-name"
+                      value="ruby-font-creator"
+                      placeholder="ruby-font-creator"
+                    />
                   </div>
-
                   <div
-                    id="build-status-container"
-                    class="build-status-card"
-                    style="display: none; margin-top: 1rem"
+                    class="flex-align-center"
+                    style="gap: 0.5rem; margin: 0.5rem 0"
                   >
-                    <div class="build-status-header">
-                      <span id="build-status-badge" class="badge">Idle</span>
-                      <span
-                        id="build-status-time"
-                        class="font-mono text-[10px] text-slate-500"
-                      ></span>
-                    </div>
-                    <pre id="build-logs" class="build-logs-box"></pre>
-                    <div
-                      id="build-download-links"
-                      class="build-downloads"
-                      style="display: none"
+                    <label
+                      for="toggle-polyphonic"
+                      style="
+                        font-size: 0.72rem;
+                        color: var(--text-secondary);
+                        font-weight: 600;
+                      "
+                      >Polyphonic Pinyin (GSUB)</label
                     >
-                      <a
-                        id="link-download-ttf"
-                        href="#"
-                        class="btn btn-small btn-primary"
-                        download
-                        ><i class="fa-solid fa-download"></i> TTF</a
-                      >
-                      <a
-                        id="link-download-woff2"
-                        href="#"
-                        class="btn btn-small btn-secondary"
-                        download
-                        ><i class="fa-solid fa-download"></i> WOFF2</a
-                      >
-                    </div>
+                    <label class="switch">
+                      <input type="checkbox" id="toggle-polyphonic" checked />
+                      <span class="slider round"></span>
+                    </label>
                   </div>
+                  <button
+                    id="btn-build-font"
+                    class="btn btn-primary"
+                    style="margin-top: 0.5rem; width: 100%"
+                  >
+                    Build Font Assets
+                  </button>
                 </div>
 
-                <!-- Stored Fonts Library -->
-                <div class="manager-card font-list-card">
-                  <h4>
-                    <i class="fa-solid fa-database"></i> Stored Fonts Library
-                  </h4>
-                  <div id="stored-fonts-list" class="stored-fonts-list">
-                    <!-- Dynamically populated list of stored fonts -->
+                <div
+                  id="build-status-container"
+                  class="build-status-card"
+                  style="display: none; margin-top: 1rem"
+                >
+                  <div class="build-status-header">
+                    <span id="build-status-badge" class="badge">Idle</span>
+                    <span
+                      id="build-status-time"
+                      class="font-mono text-[10px] text-slate-500"
+                    ></span>
+                  </div>
+                  <pre id="build-logs" class="build-logs-box"></pre>
+                  <div
+                    id="build-download-links"
+                    class="build-downloads"
+                    style="display: none"
+                  >
+                    <a
+                      id="link-download-ttf"
+                      href="#"
+                      class="btn btn-small btn-primary"
+                      download
+                      ><i class="fa-solid fa-download"></i> TTF</a
+                    >
+                    <a
+                      id="link-download-woff2"
+                      href="#"
+                      class="btn btn-small btn-secondary"
+                      download
+                      ><i class="fa-solid fa-download"></i> WOFF2</a
+                    >
                   </div>
                 </div>
               </div>
@@ -697,6 +682,201 @@
                   run <strong>Build Font Assets</strong> in the sidebar to load
                   the font.
                 </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab Content: Font Manager -->
+        <div class="tab-pane" id="pane-manager">
+          <div class="manager-tab-grid">
+            <!-- Pinyin Font Manager Card -->
+            <div class="card pinyin-manager-card">
+              <div
+                class="card-header"
+                style="
+                  display: flex;
+                  justify-content: space-between;
+                  align-items: center;
+                  flex-wrap: wrap;
+                  gap: 1rem;
+                "
+              >
+                <div>
+                  <h3>Pinyin Typography Font Settings</h3>
+                  <p class="card-subtitle">
+                    Manage and audit fonts used for generating Pinyin
+                    characters.
+                  </p>
+                </div>
+                <div
+                  class="selector-group"
+                  style="display: flex; align-items: center; gap: 0.5rem"
+                >
+                  <span
+                    style="
+                      font-size: 0.75rem;
+                      font-weight: 600;
+                      color: var(--text-secondary);
+                    "
+                    >Select Font to Manage:</span
+                  >
+                  <select
+                    id="manager-font-select"
+                    class="select-control"
+                    style="
+                      width: 180px;
+                      padding: 0.35rem 0.5rem;
+                      font-size: 0.75rem;
+                      border-radius: 0.5rem;
+                    "
+                  >
+                    <!-- Dynamically populated -->
+                  </select>
+                </div>
+              </div>
+              <div class="card-body">
+                <div class="pinyin-manager-cols">
+                  <!-- Control Column -->
+                  <div class="pinyin-control-column">
+                    <!-- Upload Custom TTF -->
+                    <div class="control-group">
+                      <label>Upload Custom TTF</label>
+                      <div id="pinyin-upload-zone" class="upload-zone">
+                        <i class="fa-solid fa-cloud-arrow-up upload-icon"></i>
+                        <span class="upload-text"
+                          >Drag & drop TTF here or click</span
+                        >
+                        <input
+                          type="file"
+                          id="pinyin-file-input"
+                          accept=".ttf"
+                          style="display: none"
+                        />
+                      </div>
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div class="pinyin-actions-row">
+                      <button
+                        id="btn-patch-pinyin"
+                        class="btn btn-primary"
+                        style="flex: 1"
+                        disabled
+                      >
+                        <i class="fa-solid fa-wand-magic-sparkles"></i> Patch
+                        Font
+                      </button>
+                      <button
+                        id="btn-delete-pinyin"
+                        class="btn"
+                        style="
+                          background-color: rgba(244, 63, 94, 0.15);
+                          color: var(--color-rose);
+                          border-color: rgba(244, 63, 94, 0.3);
+                        "
+                        disabled
+                      >
+                        <i class="fa-solid fa-trash"></i> Delete Font
+                      </button>
+                    </div>
+
+                    <!-- Patching progress console logs -->
+                    <div
+                      id="pinyin-status-box"
+                      class="pinyin-log-container"
+                      style="display: none; margin-top: 1rem"
+                    >
+                      <div class="pinyin-log-header">
+                        <span
+                          ><i
+                            class="fa-solid fa-circle-notch fa-spin status-spinner"
+                          ></i>
+                          Patching Progress Console</span
+                        >
+                      </div>
+                      <pre
+                        id="pinyin-patch-logs"
+                        class="pinyin-patch-logs-box"
+                      ></pre>
+                    </div>
+                  </div>
+
+                  <!-- Audit Grid Column -->
+                  <div class="pinyin-audit-column">
+                    <div class="flex-row-between" style="margin-bottom: 0.5rem">
+                      <label
+                        style="
+                          font-weight: 600;
+                          font-size: 0.85rem;
+                          color: var(--text-primary);
+                        "
+                        >Glyph Coverage Audit</label
+                      >
+                      <span id="audit-summary-badge" class="badge badge-success"
+                        >0/25 Missing</span
+                      >
+                    </div>
+                    <div id="audit-glyph-grid" class="audit-grid">
+                      <!-- Populated dynamically with character badges -->
+                    </div>
+                  </div>
+                </div>
+
+                <hr
+                  class="section-divider"
+                  style="
+                    border: 0;
+                    border-top: 1px solid var(--border-color);
+                    margin: 1.5rem 0;
+                  "
+                />
+
+                <!-- Font Preview Box -->
+                <div class="control-group pinyin-preview-group">
+                  <div class="flex-row-between" style="margin-bottom: 0.5rem">
+                    <label
+                      style="
+                        font-weight: 600;
+                        font-size: 0.85rem;
+                        color: var(--text-primary);
+                      "
+                      >Font Glyph Preview (Exercises All 25 required lowercase
+                      tone marks)</label
+                    >
+                    <button
+                      id="btn-use-pinyin"
+                      class="btn btn-small btn-secondary"
+                      disabled
+                    >
+                      <i class="fa-solid fa-check"></i> Set Active for Layout
+                    </button>
+                  </div>
+                  <div
+                    id="pinyin-manager-preview"
+                    class="pinyin-manager-preview-box"
+                  >
+                    ā á ǎ à ē é ě è ī í ǐ ì ō ó ǒ ò ū ú ǔ ù ü ǖ ǘ ǚ ǜ
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Stored Fonts Library Card -->
+            <div class="card compiled-library-card">
+              <div class="card-header">
+                <div>
+                  <h3>Stored Fonts Library</h3>
+                  <p class="card-subtitle">
+                    Manage and download custom compiled fonts saved in
+                    IndexedDB.
+                  </p>
+                </div>
+              </div>
+              <div class="card-body">
+                <div id="stored-fonts-list" class="stored-fonts-list">
+                  <!-- Dynamically populated list of stored fonts -->
+                </div>
               </div>
             </div>
           </div>

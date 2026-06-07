@@ -220,3 +220,86 @@ font.save('/font_out.woff2')
     woff2: woff2Bytes,
   }
 }
+
+export async function patchFontInBrowser(
+  fontBytes: Uint8Array,
+  sourceFontBytes: Uint8Array,
+  missingChars: string[],
+  logCallback: (msg: string) => void,
+): Promise<Uint8Array> {
+  logCallback('Initializing Pyodide for font patching...\n')
+  const pyodide = await initPyodide(logCallback)
+
+  logCallback('Mounting fonts in virtual filesystem...\n')
+  pyodide.FS.writeFile('/font.ttf', fontBytes)
+  pyodide.FS.writeFile('/source_font.ttf', sourceFontBytes)
+
+  logCallback('Running patch script inside Pyodide...\n')
+
+  await pyodide.runPythonAsync(`
+import json
+from fontTools.ttLib import TTFont
+from fontTools.pens.ttGlyphPen import TTGlyphPen
+from fontTools.pens.transformPen import TransformPen
+
+src_font = TTFont('/source_font.ttf')
+dest_font = TTFont('/font.ttf')
+
+src_cmap = src_font.getBestCmap()
+dest_cmap = dest_font.getBestCmap()
+
+dest_glyf = dest_font['glyf']
+dest_hmtx = dest_font['hmtx']
+
+src_units = src_font['head'].unitsPerEm
+dest_units = dest_font['head'].unitsPerEm
+scale_ratio = dest_units / src_units
+
+src_glyph_set = src_font.getGlyphSet()
+glyph_order = dest_font.getGlyphOrder()
+
+missing_chars = ${JSON.stringify(missingChars)}
+cmap_updated = False
+
+for char in missing_chars:
+    cp = ord(char)
+    if cp in dest_cmap:
+        continue
+    if cp in src_cmap:
+        src_gname = src_cmap[cp]
+        dest_gname = f"uni{cp:04X}"
+        
+        pen = TTGlyphPen(dest_font.getGlyphSet())
+        transform_pen = TransformPen(pen, (scale_ratio, 0, 0, scale_ratio, 0, 0))
+        src_glyph_set[src_gname].draw(transform_pen)
+        
+        dest_glyph = pen.glyph()
+        dest_glyf[dest_gname] = dest_glyph
+        
+        src_hmtx = src_font['hmtx']
+        src_width = src_glyph_set[src_gname].width
+        src_lsb = 0
+        if src_gname in src_hmtx:
+            src_width, src_lsb = src_hmtx[src_gname]
+        
+        dest_width = int(round(src_width * scale_ratio))
+        dest_lsb = int(round(src_lsb * scale_ratio))
+        dest_hmtx[dest_gname] = (dest_width, dest_lsb)
+        
+        if dest_gname not in glyph_order:
+            glyph_order.append(dest_gname)
+        dest_cmap[cp] = dest_gname
+        cmap_updated = True
+
+if cmap_updated:
+    dest_font.setGlyphOrder(glyph_order)
+    dest_font.save('/font_patched.ttf')
+else:
+    dest_font.save('/font_patched.ttf')
+  `)
+
+  logCallback('Reading patched font from virtual filesystem...\n')
+  const patchedBytes = pyodide.FS.readFile('/font_patched.ttf')
+  logCallback('Patching complete!\n')
+  return patchedBytes
+}
