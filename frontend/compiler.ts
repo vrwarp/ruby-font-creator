@@ -223,73 +223,238 @@ font.save('/font_out.woff2')
 
 export async function patchFontInBrowser(
   fontBytes: Uint8Array,
-  sourceFontBytes: Uint8Array,
   missingChars: string[],
   logCallback: (msg: string) => void,
 ): Promise<Uint8Array> {
   logCallback('Initializing Pyodide for font patching...\n')
   const pyodide = await initPyodide(logCallback)
 
-  logCallback('Mounting fonts in virtual filesystem...\n')
+  logCallback('Mounting font in virtual filesystem...\n')
   pyodide.FS.writeFile('/font.ttf', fontBytes)
-  pyodide.FS.writeFile('/source_font.ttf', sourceFontBytes)
 
-  logCallback('Running patch script inside Pyodide...\n')
+  pyodide.globals.set('log_js', logCallback)
 
   await pyodide.runPythonAsync(`
 import json
 from fontTools.ttLib import TTFont
-from fontTools.pens.ttGlyphPen import TTGlyphPen
-from fontTools.pens.transformPen import TransformPen
 
-src_font = TTFont('/source_font.ttf')
 dest_font = TTFont('/font.ttf')
 
-src_cmap = src_font.getBestCmap()
-dest_cmap = dest_font.getBestCmap()
+log_js("--- Font Metrics Instrumentation ---\\n")
+log_js(f"Dest Font: unitsPerEm={dest_font['head'].unitsPerEm}, ascent={dest_font['hhea'].ascent}, descent={dest_font['hhea'].descent}\\n")
+log_js("------------------------------------\\n")
 
+dest_cmap = dest_font.getBestCmap()
 dest_glyf = dest_font['glyf']
 dest_hmtx = dest_font['hmtx']
-
-src_units = src_font['head'].unitsPerEm
-dest_units = dest_font['head'].unitsPerEm
-scale_ratio = dest_units / src_units
-
-src_glyph_set = src_font.getGlyphSet()
 glyph_order = dest_font.getGlyphOrder()
 
 missing_chars = ${JSON.stringify(missingChars)}
 cmap_updated = False
 
-for char in missing_chars:
+decomp_rules = {
+    'ā': ('a', 'macron'),
+    'á': ('a', 'acute'),
+    'ǎ': ('a', 'caron'),
+    'à': ('a', 'grave'),
+    'ē': ('e', 'macron'),
+    'é': ('e', 'acute'),
+    'ě': ('e', 'caron'),
+    'è': ('e', 'grave'),
+    'ī': ('i', 'macron'),
+    'í': ('i', 'acute'),
+    'ǐ': ('i', 'caron'),
+    'ì': ('i', 'grave'),
+    'ō': ('o', 'macron'),
+    'ó': ('o', 'acute'),
+    'ǒ': ('o', 'caron'),
+    'ò': ('o', 'grave'),
+    'ū': ('u', 'macron'),
+    'ú': ('u', 'acute'),
+    'ǔ': ('u', 'caron'),
+    'ù': ('u', 'grave'),
+    'ü': ('u', 'dieresis'),
+    'ǖ': ('ü', 'macron'),
+    'ǘ': ('ü', 'acute'),
+    'ǚ': ('ü', 'caron'),
+    'ǜ': ('ü', 'grave'),
+}
+
+def find_accent_glyph(cmap, accent_type):
+    # Try to extract the accent component name from precomposed glyphs
+    # to match the font's designed visual style
+    precomposed_base_map = {
+        'caron': [('a', 'acaron'), ('e', 'ecaron'), ('o', 'ocaron'), ('u', 'ucaron')],
+        'macron': [('a', 'amacron'), ('e', 'emacron'), ('o', 'omacron'), ('u', 'umacron')],
+        'acute': [('a', 'aacute'), ('e', 'eacute'), ('o', 'oacute'), ('u', 'uacute')],
+        'grave': [('a', 'agrave'), ('e', 'egrave'), ('o', 'ograve'), ('u', 'ugrave')],
+        'dieresis': [('u', 'udieresis')]
+    }
+    
+    for base_char, precomposed_name in precomposed_base_map.get(accent_type, []):
+        if precomposed_name in dest_glyf:
+            g = dest_glyf[precomposed_name]
+            if g.numberOfContours < 0: # composite
+                base_cp = ord(base_char)
+                base_gname = dest_cmap.get(base_cp)
+                if base_gname:
+                    for comp in g.components:
+                        cname = comp.glyphName
+                        if cname != base_gname and cname in dest_glyf:
+                            return cname
+
+    accent_map = {
+        'macron': [0x00AF, 0x02C9, 0x0304],
+        'acute': [0x00B4, 0x02CA, 0x0301],
+        'caron': [0x02C7, 0x02C7, 0x030C],
+        'grave': [0x0060, 0x02CB, 0x0300],
+        'dieresis': [0x00A8, 0x02D8, 0x0308]
+    }
+    for cp in accent_map.get(accent_type, []):
+        if cp in cmap:
+            return cmap[cp]
+    return None
+
+from fontTools.pens.boundsPen import ControlBoundsPen
+from fontTools.ttLib.tables._g_l_y_f import GlyphComponent, Glyph
+
+def get_glyph_bounds(glyph_name):
+    try:
+        glyph_set = dest_font.getGlyphSet()
+        pen = ControlBoundsPen(glyph_set)
+        glyph_set[glyph_name].draw(pen)
+        if pen.bounds is not None:
+            return pen.bounds
+    except Exception as e:
+        log_js(f"Error getting bounds for {glyph_name}: {e}\\n")
+    
+    if glyph_name in dest_glyf:
+        g = dest_glyf[glyph_name]
+        return (
+            getattr(g, 'xMin', 0),
+            getattr(g, 'yMin', 0),
+            getattr(g, 'xMax', 0),
+            getattr(g, 'yMax', 0)
+        )
+    return (0, 0, 0, 0)
+
+def find_dotless_i_glyph():
+    # 1. Check U+0131 in cmap
+    if 0x0131 in dest_cmap:
+        return dest_cmap[0x0131]
+        
+    # 2. Check standard names in glyf table
+    for name in ['dotlessi', 'uni0131', 'dotlessI', 'i.dotless']:
+        if name in dest_glyf:
+            return name
+            
+    # 3. Check components of built-in i-based characters
+    i_chars = ['iacute', 'igrave', 'idieresis', 'icaron', 'imacron']
+    for name in i_chars:
+        if name in dest_glyf:
+            g = dest_glyf[name]
+            # Check if it is composite
+            if hasattr(g, 'numberOfContours') and g.numberOfContours < 0:
+                for comp in g.components:
+                    cname = comp.glyphName
+                    if cname in dest_glyf:
+                        is_accent = any(acc in cname.lower() for acc in ['acute', 'grave', 'dieresis', 'caron', 'macron', 'uni02', 'uni03'])
+                        if not is_accent:
+                            return cname
+    return None
+
+def get_or_create_glyph(char):
     cp = ord(char)
-    if cp in dest_cmap:
-        continue
-    if cp in src_cmap:
-        src_gname = src_cmap[cp]
+    if cp in dest_cmap and char not in missing_chars:
+        return dest_cmap[cp]
+        
+    if char not in decomp_rules:
+        return None
+        
+    base_char, accent_type = decomp_rules[char]
+    base_name = None
+    dotless_name = None
+    if base_char == 'i':
+        dotless_name = find_dotless_i_glyph()
+        if dotless_name:
+            base_name = dotless_name
+            
+    if not base_name:
+        base_name = get_or_create_glyph(base_char)
+        
+    accent_name = find_accent_glyph(dest_cmap, accent_type)
+    
+    if base_name and accent_name and base_name in dest_glyf and accent_name in dest_glyf:
         dest_gname = f"uni{cp:04X}"
+        base_glyph = dest_glyf[base_name]
+        accent_glyph = dest_glyf[accent_name]
         
-        pen = TTGlyphPen(dest_font.getGlyphSet())
-        transform_pen = TransformPen(pen, (scale_ratio, 0, 0, scale_ratio, 0, 0))
-        src_glyph_set[src_gname].draw(transform_pen)
+        base_bounds = get_glyph_bounds(base_name)
+        accent_bounds = get_glyph_bounds(accent_name)
         
-        dest_glyph = pen.glyph()
-        dest_glyf[dest_gname] = dest_glyph
+        base_xMin, base_yMin, base_xMax, base_yMax = base_bounds
+        accent_xMin, accent_yMin, accent_xMax, accent_yMax = accent_bounds
         
-        src_hmtx = src_font['hmtx']
-        src_width = src_glyph_set[src_gname].width
-        src_lsb = 0
-        if src_gname in src_hmtx:
-            src_width, src_lsb = src_hmtx[src_gname]
+        # Center horizontally
+        base_center = (base_xMin + base_xMax) / 2
+        accent_center = (accent_xMin + accent_xMax) / 2
+        x_offset = int(round(base_center - accent_center))
         
-        dest_width = int(round(src_width * scale_ratio))
-        dest_lsb = int(round(src_lsb * scale_ratio))
-        dest_hmtx[dest_gname] = (dest_width, dest_lsb)
+        # Position vertically
+        gap = int(round(dest_font['head'].unitsPerEm * 0.05))
+        if accent_type == 'macron':
+            gap += int(round(dest_font['head'].unitsPerEm * 0.03)) # total 8% gap for macron
+        if base_char == 'i' and not dotless_name:
+            gap += int(round(dest_font['head'].unitsPerEm * 0.03)) # extra 3% gap for dotted base to avoid collision
+            
+        y_offset = base_yMax - accent_yMin + gap
+        
+        # Create composite components
+        comp_base = GlyphComponent()
+        comp_base.glyphName = base_name
+        comp_base.x = 0
+        comp_base.y = 0
+        comp_base.flags = 0x0204  # ROUND_XY_TO_GRID | USE_MY_METRICS
+        
+        comp_accent = GlyphComponent()
+        comp_accent.glyphName = accent_name
+        comp_accent.x = x_offset
+        comp_accent.y = y_offset
+        comp_accent.flags = 0x0004  # ROUND_XY_TO_GRID
+        
+        glyph = Glyph()
+        glyph.numberOfContours = -1
+        glyph.components = [comp_base, comp_accent]
+        
+        # Recalculate bounds using the true visual boundaries
+        glyph.xMin = min(base_xMin, accent_xMin + x_offset)
+        glyph.yMin = min(base_yMin, accent_yMin + y_offset)
+        glyph.xMax = max(base_xMax, accent_xMax + x_offset)
+        glyph.yMax = max(base_yMax, accent_yMax + y_offset)
+        
+        dest_glyf[dest_gname] = glyph
+        base_width, _ = dest_hmtx[base_name]
+        # LSB must equal xMin per the OpenType spec; using the base LSB causes
+        # renderers to clip any ink that overhangs left of the base's left edge.
+        dest_hmtx[dest_gname] = (base_width, int(glyph.xMin))
         
         if dest_gname not in glyph_order:
             glyph_order.append(dest_gname)
         dest_cmap[cp] = dest_gname
+        
+        log_js(f"Dynamically constructed composite '{char}' (U+{cp:04X}): base={base_name}, accent={accent_name}, x_offset={x_offset}, y_offset={y_offset}\\n")
+        return dest_gname
+        
+    return None
+
+for char in missing_chars:
+    cp = ord(char)
+    # Try to construct composite from destination font components
+    dest_gname = get_or_create_glyph(char)
+    if dest_gname:
         cmap_updated = True
+    else:
+        log_js(f"Warning: Could not construct '{char}' (U+{cp:04X}) because required base/accent glyph was not found in destination font.\\n")
 
 if cmap_updated:
     dest_font.setGlyphOrder(glyph_order)

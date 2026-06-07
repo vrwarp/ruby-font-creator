@@ -710,7 +710,9 @@ function auditFontCoverage(font: opentype.Font): {
   const missing: string[] = []
   for (const char of PINYIN_REQUIRED_CHARS) {
     const glyph = font.charToGlyph(char)
-    if (glyph && glyph.index > 0) {
+    const hasPath =
+      glyph && glyph.getPath && glyph.getPath(0, 0, 72).commands.length > 0
+    if (glyph && glyph.index > 0 && hasPath) {
       present.push(char)
     } else {
       missing.push(char)
@@ -1010,17 +1012,10 @@ function setupPinyinFontEvents() {
         return
       }
 
-      showPinyinStatus('Fetching source Droid Sans Fallback...', true)
-      const res = await fetch('./resources/fonts/DroidSansFallbackFull.ttf')
-      if (!res.ok) throw new Error('Failed to load DroidSansFallbackFull.ttf')
-      const srcBuffer = await res.arrayBuffer()
-      const srcBytes = new Uint8Array(srcBuffer)
-
       showPinyinStatus('Patching missing characters in browser...', true)
       const { patchFontInBrowser } = await import('./compiler.js')
       const patchedBytes = await patchFontInBrowser(
         fontEntry.ttf,
-        srcBytes,
         missing,
         (msg) => {
           showPinyinStatus(msg.trim(), true)
