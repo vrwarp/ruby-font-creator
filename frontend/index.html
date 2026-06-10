@@ -223,7 +223,7 @@
             <div class="control-group range-control">
               <div class="range-labels">
                 <span class="range-name">Pinyin Size</span>
-                <span class="range-value" id="val-pinyin-size">13px</span>
+                <span class="range-value" id="val-pinyin-size">18px</span>
               </div>
               <input
                 type="range"
@@ -231,7 +231,7 @@
                 min="8"
                 max="50"
                 step="1"
-                value="13"
+                value="18"
               />
             </div>
 
@@ -771,6 +771,7 @@
                         id="btn-delete-pinyin"
                         class="btn"
                         style="
+                          flex: 1;
                           background-color: rgba(244, 63, 94, 0.15);
                           color: var(--color-rose);
                           border-color: rgba(244, 63, 94, 0.3);
@@ -779,26 +780,6 @@
                       >
                         <i class="fa-solid fa-trash"></i> Delete Font
                       </button>
-                    </div>
-
-                    <!-- Patching progress console logs -->
-                    <div
-                      id="pinyin-status-box"
-                      class="pinyin-log-container"
-                      style="display: none; margin-top: 1rem"
-                    >
-                      <div class="pinyin-log-header">
-                        <span
-                          ><i
-                            class="fa-solid fa-circle-notch fa-spin status-spinner"
-                          ></i>
-                          Patching Progress Console</span
-                        >
-                      </div>
-                      <pre
-                        id="pinyin-patch-logs"
-                        class="pinyin-patch-logs-box"
-                      ></pre>
                     </div>
                   </div>
 
@@ -878,6 +859,40 @@
                   <!-- Dynamically populated list of stored fonts -->
                 </div>
               </div>
+            </div>
+
+            <!-- Patching progress console logs -->
+            <div
+              id="pinyin-status-box"
+              class="card pinyin-log-container"
+              style="
+                display: none;
+                margin-top: 1.5rem;
+                background-color: #090d16;
+                border-color: rgba(255, 255, 255, 0.05);
+              "
+            >
+              <div
+                class="pinyin-log-header"
+                style="
+                  background-color: #111827;
+                  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+                  padding: 0.75rem 1rem;
+                  font-size: 0.75rem;
+                "
+              >
+                <span>
+                  <i
+                    class="fa-solid fa-circle-notch fa-spin status-spinner"
+                  ></i>
+                  Patching Progress Console
+                </span>
+              </div>
+              <pre
+                id="pinyin-patch-logs"
+                class="pinyin-patch-logs-box"
+                style="padding: 1rem"
+              ></pre>
             </div>
           </div>
         </div>

@@ -304,7 +304,7 @@ const state = {
   opticalSqueeze: 65, // %
   fontWeight: 500,
   letterTracking: -0.04, // em
-  pinyinSize: 13, // px
+  pinyinSize: 18, // px
   hanziSize: 48, // px
 
   // Worship Simulator State
@@ -916,20 +916,88 @@ async function auditActivePinyinFont() {
     elements.pinyinManagerPreview.innerHTML = ''
     const previewString =
       'ā á ǎ à  ē é ě è  ī í ǐ ì  ō ó ǒ ò  ū ú ǔ ù  ü ǖ ǘ ǚ ǜ'
+
     for (const char of previewString) {
       if (char === ' ') {
         elements.pinyinManagerPreview.appendChild(document.createTextNode(' '))
       } else {
-        const span = document.createElement('span')
-        if (missing.includes(char)) {
-          span.className = 'preview-char missing'
-          span.textContent = '☒'
-          span.title = `${char} is missing!`
-        } else {
+        const isPresent = !missing.includes(char)
+        if (isPresent && !isSystem) {
+          const wrapper = document.createElement('span')
+          wrapper.className = 'preview-char-wrapper'
+
+          const span = document.createElement('span')
           span.className = 'preview-char'
           span.textContent = char
+
+          const delBtn = document.createElement('button')
+          delBtn.className = 'btn-delete-glyph'
+          delBtn.innerHTML = '<i class="fa-solid fa-square-xmark"></i>'
+          delBtn.title = `Delete '${char}' glyph from font to regenerate`
+
+          delBtn.addEventListener('click', async (e) => {
+            e.stopPropagation()
+            if (
+              confirm(
+                `Are you sure you want to delete glyph '${char}' from font "${fontKey}" to regenerate it?`,
+              )
+            ) {
+              try {
+                clearPinyinLogs()
+                showPinyinStatus(`Removing glyph '${char}'...`, true)
+
+                const { getPinyinFont, savePinyinFont } =
+                  await import('./db.js')
+                const fontEntry = await getPinyinFont(fontKey)
+                if (!fontEntry) throw new Error('Font entry not found')
+
+                const { deleteGlyphFromFont } = await import('./compiler.js')
+                const updatedBytes = await deleteGlyphFromFont(
+                  fontEntry.ttf,
+                  char,
+                  (msg) => {
+                    showPinyinStatus(msg.trim(), true)
+                  },
+                )
+
+                showPinyinStatus('Saving updated font...', true)
+                await savePinyinFont({
+                  ...fontEntry,
+                  ttf: updatedBytes,
+                  timestamp: Date.now(),
+                })
+
+                if (annotationFontEngines[fontKey]) {
+                  delete annotationFontEngines[fontKey]
+                }
+
+                showPinyinStatus(`Glyph '${char}' deleted successfully!`, false)
+                setTimeout(() => showPinyinStatus('', false), 2000)
+
+                await refreshPinyinFontsDropdown(fontKey)
+                updateUI()
+              } catch (err: any) {
+                console.error('Failed to delete glyph:', err)
+                showPinyinStatus(`Delete failed: ${err.message}`, false)
+              }
+            }
+          })
+
+          wrapper.appendChild(span)
+          wrapper.appendChild(delBtn)
+          elements.pinyinManagerPreview.appendChild(wrapper)
+        } else {
+          const span = document.createElement('span')
+          if (missing.includes(char)) {
+            span.className = 'preview-char missing'
+            span.textContent = '☒'
+            span.title = `${char} is missing!`
+          } else {
+            span.className = 'preview-char'
+            span.textContent = char
+          }
+          elements.pinyinManagerPreview.appendChild(span)
         }
-        elements.pinyinManagerPreview.appendChild(span)
       }
     }
 
@@ -1373,7 +1441,7 @@ function setupEventListeners() {
     state.opticalSqueeze = 65
     state.fontWeight = 500
     state.letterTracking = -0.04
-    state.pinyinSize = 13
+    state.pinyinSize = 18
     state.hanziSize = 48
     state.strategy = 'smart'
     state.characterWidth = 80
@@ -1387,8 +1455,8 @@ function setupEventListeners() {
     elements.valStrokeWeight.textContent = '500 (Medium)'
     elements.rangeLetterTracking.value = '-0.04'
     elements.valLetterTracking.textContent = '-0.040em'
-    elements.rangePinyinSize.value = '13'
-    elements.valPinyinSize.textContent = '13px'
+    elements.rangePinyinSize.value = '18'
+    elements.valPinyinSize.textContent = '18px'
     elements.rangeHanziSize.value = '48'
     elements.valHanziSize.textContent = '48px'
     elements.rangeCharacterWidth.value = '80'

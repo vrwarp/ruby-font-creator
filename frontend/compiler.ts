@@ -501,3 +501,33 @@ else:
   logCallback('Patching complete!\n')
   return patchedBytes
 }
+
+export async function deleteGlyphFromFont(
+  fontBytes: Uint8Array,
+  charToDelete: string,
+  logCallback: (msg: string) => void,
+): Promise<Uint8Array> {
+  logCallback(`Initializing Pyodide to remove glyph '${charToDelete}'...\n`)
+  const pyodide = await initPyodide(logCallback)
+
+  logCallback('Mounting font in virtual filesystem...\n')
+  pyodide.FS.writeFile('/font.ttf', fontBytes)
+
+  pyodide.globals.set('char_to_delete', charToDelete)
+
+  await pyodide.runPythonAsync(`
+from fontTools.ttLib import TTFont
+font = TTFont('/font.ttf')
+cp = ord(char_to_delete)
+cmap_changed = False
+for subtable in font['cmap'].tables:
+    if cp in subtable.cmap:
+        del subtable.cmap[cp]
+        cmap_changed = True
+
+font.save('/font_deleted.ttf')
+  `)
+
+  logCallback(`Glyph '${charToDelete}' successfully removed from font.\n`)
+  return pyodide.FS.readFile('/font_deleted.ttf')
+}

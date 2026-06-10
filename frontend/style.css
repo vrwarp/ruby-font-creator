@@ -662,15 +662,17 @@ body {
 }
 
 .selector-group {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   color: var(--text-secondary);
   background-color: var(--bg-app);
   border: 1px solid var(--border-color);
-  padding: 0.35rem 0.6rem;
   border-radius: 0.5rem;
+  box-sizing: border-box;
+  height: 32px;
+  padding: 0 0.6rem;
 }
 
 .selector-group select {
@@ -680,6 +682,28 @@ body {
   font-weight: 600;
   outline: none;
   cursor: pointer;
+  font-size: inherit;
+}
+
+.selector-group .btn {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  color: var(--color-indigo);
+  font-weight: 600;
+  padding: 0 0.5rem;
+  font-size: 0.72rem;
+  border-radius: 0.25rem;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.selector-group .btn:hover {
+  background-color: var(--bg-card-hover);
+  transform: none;
 }
 
 .card-body {
@@ -702,9 +726,14 @@ body {
 }
 
 .btn-small {
-  padding: 0.35rem 0.75rem;
+  height: 32px;
+  padding: 0 0.75rem;
   font-size: 0.75rem;
   border-radius: 0.5rem;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .btn-secondary {
@@ -1487,6 +1516,22 @@ body {
 .sidebar-sliders-grid .control-group {
   margin: 0;
 }
+.sidebar-sliders-grid .range-labels {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.15rem;
+  margin-bottom: 0.35rem;
+}
+.sidebar-sliders-grid .range-name {
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+.sidebar-sliders-grid .range-value {
+  text-align: right;
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
 
 .tester-manager-grid {
   display: grid;
@@ -1530,8 +1575,6 @@ body {
 }
 
 .stored-fonts-list {
-  max-height: 140px;
-  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
@@ -1672,6 +1715,12 @@ body {
   gap: 2rem;
 }
 
+.pinyin-control-column {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
 @media (max-width: 768px) {
   .pinyin-manager-cols {
     grid-template-columns: 1fr;
@@ -1743,4 +1792,54 @@ body {
   margin: 0 2px;
   display: inline-block;
   line-height: 1.2;
+}
+
+.preview-char-wrapper {
+  position: relative;
+  display: inline-block;
+  margin: 0 2px;
+  padding: 0 4px;
+  border: 1px dashed transparent;
+  border-radius: 4px;
+  transition: all var(--transition-fast);
+  line-height: 1.2;
+}
+
+.preview-char-wrapper:hover {
+  border-color: rgba(244, 63, 94, 0.5);
+  background-color: rgba(244, 63, 94, 0.08);
+}
+
+.btn-delete-glyph {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  background: white;
+  border: 1px solid rgba(244, 63, 94, 0.3);
+  color: #f43f5e;
+  font-size: 0.65rem;
+  width: 15px;
+  height: 15px;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition-fast);
+  padding: 0;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  z-index: 10;
+}
+
+.preview-char-wrapper:hover .btn-delete-glyph {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.btn-delete-glyph:hover {
+  background-color: #f43f5e;
+  color: white;
+  border-color: #f43f5e;
 }
