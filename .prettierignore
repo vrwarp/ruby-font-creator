@@ -5,5 +5,4 @@ dist-web/
 package-lock.json
 *.pdf
 resources/fonts/
-frontend/public/vendor/
 frontend/public/pyodide/

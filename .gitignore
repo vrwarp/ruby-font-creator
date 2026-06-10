@@ -12,6 +12,8 @@ resources/fonts/README.md
 *.xbel
 *.log
 *.zip
+# python_stdlib.zip is required for the vendored Pyodide runtime to boot
+!frontend/public/pyodide/python_stdlib.zip
 build/
 test/*.svg
 

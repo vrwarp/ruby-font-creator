@@ -239,13 +239,12 @@ export const ruby = {
         ]
       : [{ dx: 0, dy: 0 }]
 
+    // Strokes are replaced by the weight-compensation offsets above, but
+    // transforms (e.g. the rotated left/right layouts) must be preserved.
     const baseAttribs = Object.keys(options.attributes || {})
       .filter(
         (k) =>
-          k !== 'stroke' &&
-          k !== 'stroke-width' &&
-          k !== 'stroke-linejoin' &&
-          k !== 'transform',
+          k !== 'stroke' && k !== 'stroke-width' && k !== 'stroke-linejoin',
       )
       .map((k) => `${k}="${options.attributes[k]}"`)
       .join(' ')
@@ -288,7 +287,9 @@ export const ruby = {
         pinyinPaths += `<path ${attrs} d="${d}"/>`
       })
 
-      currentX += (advances[idx] + spacingPx) * scaleRatio
+      // Glyphs are squeezed but tracking is applied post-squeeze, matching
+      // the totalPinyinWidth used to centre the annotation above.
+      currentX += advances[idx] * scaleRatio + spacingPx
     })
 
     return pinyinPaths

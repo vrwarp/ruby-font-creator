@@ -125,7 +125,7 @@ export async function compileFontInBrowser(
     const polyMapData = buildPolyphonicMap(data)
     pyodide.FS.writeFile('/polyphonic-map.json', JSON.stringify(polyMapData))
 
-    // Inject inject-gsub.py logic
+    // Inject the equivalent of scripts/inject-gsub.py (keep both in sync)
     logCallback('Running GSUB injection script inside Pyodide...\n')
     await pyodide.runPythonAsync(`
 import json
@@ -135,11 +135,34 @@ from fontTools.feaLib.builder import addOpenTypeFeatures
 def parse_codepoint(cp):
     return int(cp.replace("U+", ""), 16)
 
+def build_context_classes(poly_map, cmap):
+    # Context neighbours that are themselves polyphonic may already be
+    # substituted to a PUA glyph by an earlier calt lookup (e.g. 参 in 参差),
+    # so context positions match a class of [primary alternates...].
+    classes = {}
+    for entry in poly_map.values():
+        primary_cp = parse_codepoint(entry["default"]["codepoint"])
+        primary_glyph = cmap.get(primary_cp)
+        if not primary_glyph:
+            continue
+        alt_glyphs = []
+        for alt in entry["alternates"]:
+            alt_glyph = cmap.get(parse_codepoint(alt["codepoint"]))
+            if alt_glyph:
+                alt_glyphs.append(alt_glyph)
+        if alt_glyphs:
+            classes[primary_cp] = "[" + " ".join([primary_glyph] + alt_glyphs) + "]"
+    return classes
+
 def build_fea(poly_map, cmap):
     lines = [
         "# Auto-generated GSUB calt rules for polyphonic Chinese characters",
         "",
+        "languagesystem DFLT dflt;",
+        "languagesystem hani dflt;",
+        "",
     ]
+    context_classes = build_context_classes(poly_map, cmap)
     lookup_names = []
     for glyph_char, entry in poly_map.items():
         primary_cp = parse_codepoint(entry["default"]["codepoint"])
@@ -153,18 +176,23 @@ def build_fea(poly_map, cmap):
                 continue
             lookup_name = f"poly_{alt['codepoint'].replace('U+', '').lower()}"
             rules = []
+            seen_triggers = set()
             for ctx in alt["contexts"]:
-                word = ctx["word"]
-                if "before" in ctx:
-                    ctx_cp = parse_codepoint(ctx["before"])
+                for position in ("before", "after"):
+                    if position not in ctx:
+                        continue
+                    ctx_cp = parse_codepoint(ctx[position])
                     ctx_glyph = cmap.get(ctx_cp)
-                    if ctx_glyph:
-                        rules.append(f"    sub {ctx_glyph} {primary_glyph}' by {alt_glyph};")
-                if "after" in ctx:
-                    ctx_cp = parse_codepoint(ctx["after"])
-                    ctx_glyph = cmap.get(ctx_cp)
-                    if ctx_glyph:
-                        rules.append(f"    sub {primary_glyph}' {ctx_glyph} by {alt_glyph};")
+                    if not ctx_glyph:
+                        continue
+                    if (position, ctx_cp) in seen_triggers:
+                        continue
+                    seen_triggers.add((position, ctx_cp))
+                    ctx_match = context_classes.get(ctx_cp, ctx_glyph)
+                    if position == "before":
+                        rules.append(f"    sub {ctx_match} {primary_glyph}' by {alt_glyph};")
+                    else:
+                        rules.append(f"    sub {primary_glyph}' {ctx_match} by {alt_glyph};")
             if rules:
                 lines.append(f"lookup {lookup_name} {{")
                 lines.extend(rules)
@@ -306,9 +334,9 @@ def find_accent_glyph(cmap, accent_type):
     accent_map = {
         'macron': [0x00AF, 0x02C9, 0x0304],
         'acute': [0x00B4, 0x02CA, 0x0301],
-        'caron': [0x02C7, 0x02C7, 0x030C],
+        'caron': [0x02C7, 0x030C],
         'grave': [0x0060, 0x02CB, 0x0300],
-        'dieresis': [0x00A8, 0x02D8, 0x0308]
+        'dieresis': [0x00A8, 0x0308]
     }
     for cp in accent_map.get(accent_type, []):
         if cp in cmap:
@@ -440,11 +468,16 @@ def get_or_create_glyph(char):
         
         if dest_gname not in glyph_order:
             glyph_order.append(dest_gname)
+        # getBestCmap() returns only one subtable's dict; write the mapping
+        # into every unicode cmap subtable so all consumers see the new glyph.
         dest_cmap[cp] = dest_gname
-        
+        for subtable in dest_font['cmap'].tables:
+            if subtable.isUnicode():
+                subtable.cmap[cp] = dest_gname
+
         log_js(f"Dynamically constructed composite '{char}' (U+{cp:04X}): base={base_name}, accent={accent_name}, x_offset={x_offset}, y_offset={y_offset}\\n")
         return dest_gname
-        
+
     return None
 
 for char in missing_chars:
