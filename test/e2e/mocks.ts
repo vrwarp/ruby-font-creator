@@ -12,9 +12,11 @@ export class MockIDBOpenDBRequest extends MockIDBRequest {
 
 export class MockIDBObjectStore {
   map: Map<any, any>
+  keyPath?: string
 
-  constructor(map: Map<any, any>) {
+  constructor(map: Map<any, any>, keyPath?: string) {
     this.map = map
+    this.keyPath = keyPath
   }
 
   put(value: any, key?: any) {
@@ -23,7 +25,10 @@ export class MockIDBObjectStore {
       const finalKey =
         key !== undefined
           ? key
-          : value.id || value.name || Math.random().toString()
+          : (this.keyPath && value[this.keyPath]) ||
+            value.id ||
+            value.name ||
+            Math.random().toString()
       this.map.set(finalKey, value)
       request.result = finalKey
       if (request.onsuccess) {
@@ -107,7 +112,7 @@ export class MockIDBTransaction {
     if (!storeMap) {
       throw new Error(`Store ${name} not found in database ${this.db.name}`)
     }
-    return new MockIDBObjectStore(storeMap)
+    return new MockIDBObjectStore(storeMap, this.db.keyPaths.get(name))
   }
 }
 
@@ -115,18 +120,32 @@ export class MockIDBDatabase {
   name: string
   version: number
   stores = new Map<string, Map<any, any>>()
+  keyPaths = new Map<string, string | undefined>()
 
   constructor(name: string, version: number) {
     this.name = name
     this.version = version
   }
 
-  createObjectStore(storeName: string, _options?: any) {
-    void _options
+  // DOMStringList-shaped view of the store names, as used by IDBDatabase
+  get objectStoreNames() {
+    const names = Array.from(this.stores.keys())
+    return {
+      length: names.length,
+      contains: (name: string) => names.includes(name),
+      item: (index: number) => names[index] ?? null,
+    }
+  }
+
+  createObjectStore(storeName: string, options?: any) {
     if (!this.stores.has(storeName)) {
       this.stores.set(storeName, new Map())
+      this.keyPaths.set(storeName, options?.keyPath)
     }
-    return new MockIDBObjectStore(this.stores.get(storeName)!)
+    return new MockIDBObjectStore(
+      this.stores.get(storeName)!,
+      this.keyPaths.get(storeName),
+    )
   }
 
   transaction(storeNames: string | string[], _mode?: string) {
@@ -252,16 +271,18 @@ export class MockPyodide {
   }
 
   async runPythonAsync(code: string) {
-    if (code.includes('import fontTools') || code.includes('import brotli')) {
-      if (
-        !this.loadedPackages.includes('fonttools') &&
-        !this.loadedPackages.includes('fontTools')
-      ) {
+    if (code.includes('fontTools') || code.includes('import brotli')) {
+      const hasFonttools = this.loadedPackages.some((pkg) =>
+        pkg.toLowerCase().includes('fonttools'),
+      )
+      if (!hasFonttools) {
         throw new Error(
           "Python Error: ModuleNotFoundError: No module named 'fontTools'",
         )
       }
     }
+
+    // Legacy simulated scripts (used directly by pyodide.test.ts)
     if (code.includes('inject')) {
       const inputFont = this.FS.readFile('in.ttf')
       // Simulate adding GSUB table by modifying a byte or just outputting it
@@ -275,6 +296,33 @@ export class MockPyodide {
       ) // simulated woff2
       return 'GSUB injection and WOFF2 compression completed successfully'
     }
+
+    // Simulation of the real frontend/compiler.ts scripts, keyed on the
+    // virtual-FS paths they write, so the production compiler can be
+    // exercised end-to-end with only Pyodide mocked out.
+    if (code.includes("'/font_out.ttf'")) {
+      const inputFont = this.FS.readFile('/font.ttf')
+      if (code.includes('addOpenTypeFeatures')) {
+        const outputFont = new Uint8Array(inputFont.length + 4)
+        outputFont.set(inputFont)
+        outputFont.set([71, 83, 85, 66], inputFont.length) // "GSUB" marker
+        this.FS.writeFile('/font_out.ttf', outputFont)
+      } else {
+        this.FS.writeFile('/font_out.ttf', inputFont)
+      }
+    }
+    if (code.includes("'/font_out.woff2'")) {
+      const source =
+        this.files.get('/font_out.ttf') ?? this.FS.readFile('/font.ttf')
+      this.FS.writeFile(
+        '/font_out.woff2',
+        new Uint8Array([119, 111, 102, 50, ...source.slice(0, 20)]),
+      )
+    }
+    if (code.includes("'/font_patched.ttf'")) {
+      this.FS.writeFile('/font_patched.ttf', this.FS.readFile('/font.ttf'))
+    }
+
     return 'Python script execution completed'
   }
 

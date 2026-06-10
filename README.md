@@ -26,13 +26,14 @@ The web application hosts the entire compiler stack directly in the browser:
 
 ### 2. Contextual Polyphonic (多音字) Support
 
-- **Context Dictionary**: Built-in contextual alternate rules mapped across 16 characters (~100 bigram rules) for general Chinese and evangelical Christian worship vocabulary (e.g., `重生` pronounced _chóngshēng_ vs. `重量` pronounced _zhòngliàng_).
-- **PUA Mapping**: Maps alternate character annotations to Private Use Area (PUA) codepoints (U+E000–U+E024) during vector generation.
-- **GSUB calt Rules**: Substitutes standard glyphs with their PUA equivalents depending on adjacent character bigram rules.
+- **Context Dictionary**: Built-in contextual alternate rules across 51 character entries (59 alternate readings, ~290 bigram rules) for general Chinese and evangelical Christian worship vocabulary (e.g., `重生` pronounced _chóngshēng_ vs. `重量` pronounced _zhòngliàng_).
+- **Simplified & Traditional**: Characters whose forms differ between scripts get separate entries (乐/樂, 长/長, …); characters shared by both scripts (行, 重, 得, …) carry context rules for both, so `银行` and `銀行` both trigger _háng_. Context characters are authored as characters (never raw codepoints) and validated against their words by the test suite.
+- **PUA Mapping**: Maps alternate character annotations to Private Use Area (PUA) codepoints (U+E000–U+E03A) during vector generation.
+- **GSUB calt Rules**: Substitutes standard glyphs with their PUA equivalents depending on adjacent character bigram rules, registered for the `DFLT` and `hani` scripts. Context positions match glyph classes (primary + alternates) so chained substitutions like `参差` (_cēncī_) resolve correctly.
 
 ### 3. PWA & Offline Support
 
-- **Service Worker (`sw.js`)**: Intercepts network requests and caches core app assets, including base fonts, Pyodide WASM runtimes, and vendored Python wheels, supporting 100% offline usage.
+- **Service Worker (`sw.js`)**: Pre-caches the app shell, character dataset, and base fonts at install time, so previews work offline immediately. The Pyodide WASM runtime and Python wheels (~25 MB) and the CDN-hosted UI webfonts/icons are cached on first use, so font compilation works offline after it has been run online once.
 - **Web App Manifest (`manifest.json`)**: Configures application installability.
 - **IndexedDB Storage**: Stores compiled font binaries and visual layout configurations locally to preserve them across browser reloads.
 
@@ -64,11 +65,12 @@ npm install
 
 ### Bootstrap Offline & Browser Assets
 
-To download and vendor the local WebAssembly binaries, Python wheels, and dependencies for the web visual simulator, run the download scripts:
+The Pyodide runtime and Python wheels are committed to the repository, so a fresh clone runs out of the box. To re-download them at the pinned version, or to re-sync the shared fonts/dataset into `frontend/public/`, run:
 
 ```bash
-# Download Pyodide runtime, wheels, and vendor assets
+# Sync data.json and fonts into frontend/public/
 npm run download:vendor
+# Re-download the Pyodide runtime and Python wheels
 npm run download:pyodide
 ```
 

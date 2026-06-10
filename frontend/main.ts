@@ -343,7 +343,7 @@ const state = {
   testerActiveFontFamily: '',
 
   // View state
-  activeTab: 'worship', // worship | textbook | sandbox | tester
+  activeTab: 'worship', // worship | textbook | sandbox | tester | manager
   darkMode: true,
   enablePolyphonic: true,
 }
@@ -539,53 +539,116 @@ function saveStateToUrl() {
   window.history.replaceState({}, '', newUrl)
 }
 
+// URL params are user input: clamp numbers to the slider ranges and reject
+// unknown enum values so a malformed link can't crash the renderers.
 function loadStateFromUrl() {
   const params = new URLSearchParams(window.location.search)
 
-  if (params.has('placement')) state.placement = params.get('placement')!
+  const readString = (key: string, allowed: string[], fallback: string) => {
+    const raw = params.get(key)
+    return raw !== null && allowed.includes(raw) ? raw : fallback
+  }
+  const readInt = (key: string, fallback: number, min: number, max: number) => {
+    const raw = params.get(key)
+    if (raw === null) return fallback
+    const val = parseInt(raw, 10)
+    return Number.isFinite(val) ? Math.min(max, Math.max(min, val)) : fallback
+  }
+  const readFloat = (
+    key: string,
+    fallback: number,
+    min: number,
+    max: number,
+  ) => {
+    const raw = params.get(key)
+    if (raw === null) return fallback
+    const val = parseFloat(raw)
+    return Number.isFinite(val) ? Math.min(max, Math.max(min, val)) : fallback
+  }
+  const readBool = (key: string, fallback: boolean) =>
+    params.has(key) ? params.get(key) === '1' : fallback
+
+  state.placement = readString('placement', ['top', 'bottom'], state.placement)
   if (params.has('pinyinFont')) state.pinyinFont = params.get('pinyinFont')!
-  if (params.has('showGuides'))
-    state.showGuides = params.get('showGuides') === '1'
-  if (params.has('characterWidth'))
-    state.characterWidth = parseInt(params.get('characterWidth')!, 10)
-  if (params.has('strategy')) state.strategy = params.get('strategy')!
-  if (params.has('verticalOffset'))
-    state.verticalOffset = parseInt(params.get('verticalOffset')!, 10)
-  if (params.has('opticalSqueeze'))
-    state.opticalSqueeze = parseInt(params.get('opticalSqueeze')!, 10)
-  if (params.has('fontWeight'))
-    state.fontWeight = parseInt(params.get('fontWeight')!, 10)
-  if (params.has('letterTracking'))
-    state.letterTracking = parseFloat(params.get('letterTracking')!)
-  if (params.has('pinyinSize'))
-    state.pinyinSize = parseInt(params.get('pinyinSize')!, 10)
-  if (params.has('hanziSize'))
-    state.hanziSize = parseInt(params.get('hanziSize')!, 10)
-  if (params.has('activeTab')) state.activeTab = params.get('activeTab')!
-  if (params.has('enablePolyphonic'))
-    state.enablePolyphonic = params.get('enablePolyphonic') === '1'
+  state.showGuides = readBool('showGuides', state.showGuides)
+  state.characterWidth = readInt(
+    'characterWidth',
+    state.characterWidth,
+    50,
+    150,
+  )
+  state.strategy = readString(
+    'strategy',
+    ['smart', 'proportional', 'global'],
+    state.strategy,
+  )
+  state.verticalOffset = readInt(
+    'verticalOffset',
+    state.verticalOffset,
+    -20,
+    60,
+  )
+  state.opticalSqueeze = readInt(
+    'opticalSqueeze',
+    state.opticalSqueeze,
+    30,
+    120,
+  )
+  state.fontWeight = readInt('fontWeight', state.fontWeight, 100, 900)
+  state.letterTracking = readFloat(
+    'letterTracking',
+    state.letterTracking,
+    -0.25,
+    0.25,
+  )
+  state.pinyinSize = readInt('pinyinSize', state.pinyinSize, 8, 50)
+  state.hanziSize = readInt('hanziSize', state.hanziSize, 36, 80)
+  state.activeTab = readString(
+    'activeTab',
+    ['worship', 'textbook', 'sandbox', 'tester', 'manager'],
+    state.activeTab,
+  )
+  state.enablePolyphonic = readBool('enablePolyphonic', state.enablePolyphonic)
 
-  if (params.has('worshipTheme'))
-    state.worshipTheme = params.get('worshipTheme')!
-  if (params.has('worshipRatio'))
-    state.worshipRatio = params.get('worshipRatio')!
-  if (params.has('worshipScale'))
-    state.worshipScale = parseFloat(params.get('worshipScale')!)
-  if (params.has('worshipSlideIndex'))
-    state.worshipSlideIndex = parseInt(params.get('worshipSlideIndex')!, 10)
-  if (params.has('worshipSubtitleVisible'))
-    state.worshipSubtitleVisible = params.get('worshipSubtitleVisible') === '1'
+  state.worshipTheme = readString(
+    'worshipTheme',
+    themesWorship.map((t) => t.id),
+    state.worshipTheme,
+  )
+  state.worshipRatio = readString(
+    'worshipRatio',
+    ['16:9', '4:3'],
+    state.worshipRatio,
+  )
+  state.worshipScale = readFloat('worshipScale', state.worshipScale, 0.8, 1.5)
+  state.worshipSlideIndex = readInt(
+    'worshipSlideIndex',
+    state.worshipSlideIndex,
+    0,
+    presetsWorship.length - 1,
+  )
+  state.worshipSubtitleVisible = readBool(
+    'worshipSubtitleVisible',
+    state.worshipSubtitleVisible,
+  )
 
-  if (params.has('activeSyllableIndex'))
-    state.activeSyllableIndex = parseInt(params.get('activeSyllableIndex')!, 10)
+  state.activeSyllableIndex = readInt(
+    'activeSyllableIndex',
+    state.activeSyllableIndex,
+    -1,
+    presetsSyllable.length - 1,
+  )
   if (params.has('customHanzi')) state.customHanzi = params.get('customHanzi')!
   if (params.has('customPinyin'))
     state.customPinyin = params.get('customPinyin')!
 
-  if (params.has('testerFontSize'))
-    state.testerFontSize = parseInt(params.get('testerFontSize')!, 10)
-  if (params.has('testerLineHeight'))
-    state.testerLineHeight = parseFloat(params.get('testerLineHeight')!)
+  state.testerFontSize = readInt('testerFontSize', state.testerFontSize, 16, 96)
+  state.testerLineHeight = readFloat(
+    'testerLineHeight',
+    state.testerLineHeight,
+    1.0,
+    3.0,
+  )
   if (params.has('testerText')) state.testerText = params.get('testerText')!
 }
 
@@ -671,6 +734,23 @@ function syncUIFromState() {
     elements.testerFontStatus.className = 'badge badge-warning'
     elements.testerFontStatus.textContent = 'No Font Loaded'
   }
+}
+
+// Apply the layout configuration stored with a compiled font, then refresh
+// every bound control from state.
+function applySavedConfig(config: any) {
+  if (!config) return
+  state.placement = config.placement ?? state.placement
+  state.verticalOffset = config.verticalOffset ?? state.verticalOffset
+  state.opticalSqueeze = config.opticalSqueeze ?? state.opticalSqueeze
+  state.fontWeight = config.fontWeight ?? state.fontWeight
+  state.letterTracking = config.letterTracking ?? state.letterTracking
+  state.pinyinSize = config.pinyinSize ?? state.pinyinSize
+  state.hanziSize = config.hanziSize ?? state.hanziSize
+  state.strategy = config.strategy ?? state.strategy
+  state.characterWidth = config.characterWidth ?? state.characterWidth
+  state.enablePolyphonic = config.enablePolyphonic ?? state.enablePolyphonic
+  syncUIFromState()
 }
 
 // --- Pinyin Font Settings Management ---
@@ -863,7 +943,7 @@ async function auditActivePinyinFont() {
         } else if (fontKey === 'pt-sans-bold') {
           filename = 'PT_Sans-Narrow-Web-Bold.ttf'
         }
-        const res = await fetch(`./resources/fonts/${filename}?v=2.0.0`)
+        const res = await fetch(`./resources/fonts/${filename}`)
         if (!res.ok) throw new Error('Failed to load system font file')
         fontBuffer = await res.arrayBuffer()
       } else {
@@ -877,7 +957,7 @@ async function auditActivePinyinFont() {
       }
       const fontFace = new FontFace(fontName, fontBuffer)
       await fontFace.load()
-      document.fonts.add(fontFace)
+      registerFontFace(fontFace)
       elements.pinyinManagerPreview.style.fontFamily = `'${fontName}', sans-serif`
     } catch (err) {
       console.error('Failed to load preview FontFace:', err)
@@ -1460,52 +1540,7 @@ function setupEventListeners() {
         const saved = await getFont(selected)
         if (saved) {
           if (saved.config) {
-            state.placement = saved.config.placement
-            state.verticalOffset = saved.config.verticalOffset
-            state.opticalSqueeze = saved.config.opticalSqueeze
-            state.fontWeight = saved.config.fontWeight
-            state.letterTracking = saved.config.letterTracking
-            state.pinyinSize = saved.config.pinyinSize
-            state.hanziSize = saved.config.hanziSize
-            state.strategy = saved.config.strategy
-            state.characterWidth = saved.config.characterWidth
-            state.enablePolyphonic = saved.config.enablePolyphonic
-
-            elements.rangeVerticalOffset.value = state.verticalOffset.toString()
-            elements.rangeOpticalSqueeze.value = state.opticalSqueeze.toString()
-            elements.rangeStrokeWeight.value = state.fontWeight.toString()
-            elements.rangeLetterTracking.value = state.letterTracking.toString()
-            elements.rangePinyinSize.value = state.pinyinSize.toString()
-            elements.rangeHanziSize.value = state.hanziSize.toString()
-            elements.rangeCharacterWidth.value = state.characterWidth.toString()
-            elements.togglePolyphonic.checked = state.enablePolyphonic
-            elements.valVerticalOffset.textContent = `${state.verticalOffset}px`
-            elements.valOpticalSqueeze.textContent = `${state.opticalSqueeze}%`
-            elements.valStrokeWeight.textContent = state.fontWeight.toString()
-            elements.valLetterTracking.textContent =
-              state.letterTracking.toFixed(3)
-            elements.valPinyinSize.textContent = `${state.pinyinSize}px`
-            elements.valHanziSize.textContent = `${state.hanziSize}px`
-            elements.valCharacterWidth.textContent = `${state.characterWidth}px`
-
-            const placeActive = document.querySelector(
-              '#placement-control .active',
-            )
-            if (placeActive) placeActive.classList.remove('active')
-            const placeBtn = document.querySelector(
-              `#placement-control button[data-val="${state.placement}"]`,
-            )
-            if (placeBtn) placeBtn.classList.add('active')
-
-            const stratActive = document.querySelector(
-              '#strategy-control .active',
-            )
-            if (stratActive) stratActive.classList.remove('active')
-            const stratBtn = document.querySelector(
-              `#strategy-control button[data-val="${state.strategy}"]`,
-            )
-            if (stratBtn) stratBtn.classList.add('active')
-
+            applySavedConfig(saved.config)
             updateUI()
           }
           await loadGeneratedFont(selected, saved.ttf, saved.woff2)
@@ -1544,7 +1579,7 @@ async function getAnnotationFontEngine(fontKey: string): Promise<any> {
       filename = 'PT_Sans-Narrow-Web-Bold.ttf'
     }
 
-    const res = await fetch(`./resources/fonts/${filename}?v=2.0.0`)
+    const res = await fetch(`./resources/fonts/${filename}`)
     if (!res.ok) throw new Error(`Failed to fetch annotation font ${filename}`)
     const buffer = await res.arrayBuffer()
     const font = opentype.parse(buffer)
@@ -1735,8 +1770,14 @@ function updateUI() {
   saveStateToUrl()
 }
 
+// Tokens so overlapping async renders can't write stale DOM out of order
+let worshipRenderToken = 0
+let textbookRenderToken = 0
+let sandboxRenderToken = 0
+
 // Render Worship simulator viewport
 async function renderWorship() {
+  const token = ++worshipRenderToken
   const slide = presetsWorship[state.worshipSlideIndex]
   elements.worshipViewport.className = `viewport-canvas ${themesWorship.find((t) => t.id === state.worshipTheme)?.class} ${state.worshipRatio === '4:3' ? 'aspect-4-3' : ''}`
 
@@ -1753,6 +1794,7 @@ async function renderWorship() {
   })
 
   const svgs = await getPreviews(glyphList)
+  if (token !== worshipRenderToken) return
 
   elements.worshipSlideContent.innerHTML = ''
   let svgIdx = 0
@@ -1810,10 +1852,16 @@ async function renderWorship() {
   ).toString()
   elements.totalSlideNum.textContent = presetsWorship.length.toString()
   elements.activeStrategyLabel.textContent = `${state.strategy} squeeze`
+
+  // Keep the fullscreen presentation clone in sync with slide navigation
+  if (elements.presentationOverlay.classList.contains('active')) {
+    refreshPresentationClone()
+  }
 }
 
 // Render Textbook layout simulation
 async function renderTextbook() {
+  const token = ++textbookRenderToken
   const poem = presetsPoem[state.activePoemIndex]
   elements.textbookPoemTitle.textContent = poem.title
   elements.textbookPoemAuthor.textContent = poem.author
@@ -1829,6 +1877,7 @@ async function renderTextbook() {
   })
 
   const svgs = await getPreviews(glyphList)
+  if (token !== textbookRenderToken) return
 
   elements.textbookContent.innerHTML = ''
   let svgIdx = 0
@@ -1901,14 +1950,16 @@ async function renderTextbook() {
   }
 }
 
-// Render Sandbox with True vector paths via backend API
+// Render Sandbox with true vector paths computed in-browser
 async function renderSandbox() {
+  const token = ++sandboxRenderToken
   const syllable = getActiveSyllable()
   elements.svgPreviewContainer.innerHTML = ''
 
   const svgs = await getPreviews([
     { glyph: syllable.hanzi, ruby: syllable.pinyin },
   ])
+  if (token !== sandboxRenderToken) return
   const item = svgs[0]
   if (item) {
     elements.svgPreviewContainer.innerHTML = item.svg
@@ -1936,9 +1987,6 @@ async function renderSandbox() {
 
 // Generate the configuration TypeScript code block
 function generateCLIConfig() {
-  const currentSyllable = getActiveSyllable()
-  const specs = computeSyllableSpecs(currentSyllable.pinyin)
-
   const code = `import path from 'node:path'
 import layout from '../layouts.js'
 import type { BuildConfig } from '../types.js'
@@ -1990,9 +2038,10 @@ const config: BuildConfig = {
           stroke: 'black',
           id: 'annotation',
         },
-        squeeze: ${specs.scaleX},
-        tracking: ${specs.letterSpacing.toFixed(3)},
-        weight: ${Math.round(specs.weight)}
+        squeeze: ${state.opticalSqueeze},
+        tracking: ${state.letterTracking.toFixed(3)},
+        weight: ${state.fontWeight},
+        strategy: '${state.strategy}'
       }
     }
   }
@@ -2024,22 +2073,26 @@ function triggerSVGDownload() {
   URL.revokeObjectURL(url)
 }
 
-// Present Fullscreen slide
-function enterPresentation() {
+// Clone the live worship viewport into the fullscreen overlay; called on entry
+// and again from renderWorship whenever the slide changes while presenting.
+function refreshPresentationClone() {
   const viewport = elements.worshipViewport
   elements.presentationContent.innerHTML = ''
 
-  // Clone slide viewport
   const clone = viewport.cloneNode(true) as HTMLElement
   clone.style.width = '90%'
   clone.style.height = '90%'
   clone.style.aspectRatio = state.worshipRatio === '4:3' ? '4/3' : '16/9'
   clone.style.maxWidth = 'none'
   clone.style.maxHeight = 'none'
-  clone.querySelector('.nav-slide-btn')?.remove()
-  clone.querySelector('.nav-slide-btn')?.remove() // twice to remove both
+  clone.querySelectorAll('.nav-slide-btn').forEach((btn) => btn.remove())
 
   elements.presentationContent.appendChild(clone)
+}
+
+// Present Fullscreen slide
+function enterPresentation() {
+  refreshPresentationClone()
   elements.presentationOverlay.classList.add('active')
 }
 
@@ -2275,6 +2328,23 @@ function renderTester() {
   }
 }
 
+// Register a FontFace, evicting any previously-registered faces with the same
+// family. Without this, rebuilt fonts (especially the debounced 'live' build)
+// accumulate in document.fonts indefinitely.
+function registerFontFace(fontFace: FontFace) {
+  const stale: FontFace[] = []
+  document.fonts.forEach((existing) => {
+    if (
+      existing.family === fontFace.family ||
+      existing.family === `"${fontFace.family}"`
+    ) {
+      stale.push(existing)
+    }
+  })
+  stale.forEach((existing) => document.fonts.delete(existing))
+  document.fonts.add(fontFace)
+}
+
 async function loadGeneratedFont(
   fontName: string,
   ttfBuffer: Uint8Array,
@@ -2290,7 +2360,7 @@ async function loadGeneratedFont(
     elements.testerFontStatus.textContent = 'Loading Font...'
 
     await fontFace.load()
-    document.fonts.add(fontFace)
+    registerFontFace(fontFace)
 
     state.testerActiveFontFamily = fontName
     elements.testerTextInput.style.fontFamily = `'${fontName}', sans-serif`
@@ -2469,44 +2539,7 @@ async function fetchAndPopulateFonts(selectFontName?: string) {
       const { getFont } = await import('./db.js')
       const saved = await getFont(targetFont)
       if (saved) {
-        if (saved.config) {
-          state.placement = saved.config.placement
-          state.verticalOffset = saved.config.verticalOffset
-          state.opticalSqueeze = saved.config.opticalSqueeze
-          state.fontWeight = saved.config.fontWeight
-          state.letterTracking = saved.config.letterTracking
-          state.pinyinSize = saved.config.pinyinSize
-          state.hanziSize = saved.config.hanziSize
-          state.strategy = saved.config.strategy
-          state.characterWidth = saved.config.characterWidth
-          state.enablePolyphonic = saved.config.enablePolyphonic
-
-          elements.rangeVerticalOffset.value = state.verticalOffset.toString()
-          elements.rangeOpticalSqueeze.value = state.opticalSqueeze.toString()
-          elements.rangeStrokeWeight.value = state.fontWeight.toString()
-          elements.rangeLetterTracking.value = state.letterTracking.toString()
-          elements.rangePinyinSize.value = state.pinyinSize.toString()
-          elements.rangeHanziSize.value = state.hanziSize.toString()
-          elements.rangeCharacterWidth.value = state.characterWidth.toString()
-          elements.togglePolyphonic.checked = state.enablePolyphonic
-
-          document
-            .querySelectorAll('#placement-control .segment-btn')
-            .forEach((b) => {
-              b.classList.toggle(
-                'active',
-                b.getAttribute('data-placement') === state.placement,
-              )
-            })
-          document
-            .querySelectorAll('#strategy-control .segment-btn')
-            .forEach((b) => {
-              b.classList.toggle(
-                'active',
-                b.getAttribute('data-strategy') === state.strategy,
-              )
-            })
-        }
+        applySavedConfig(saved.config)
         await loadGeneratedFont(targetFont, saved.ttf, saved.woff2)
       }
     }

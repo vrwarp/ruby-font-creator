@@ -49,14 +49,14 @@
 
 ## Milestones
 
-| #   | Name                                                        | Scope                                                                                                                        | Dependencies | Status  |
-| --- | ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------ | ------- |
-| 1   | M1: Test Suite & Infrastructure (E2E Track)                 | Design and implement the E2E/integration testing infrastructure for browser-side PWA features, including mocking.            | None         | PLANNED |
-| 2   | M2: Dependency Vendoring & PWA Setup                        | Download Pyodide runtime, Python wheels (`fonttools`, `brotli`), `opentype.js`, and setup `manifest.json` and `sw.js`.       | None         | DONE    |
-| 3   | M3: Client-Side Vector Preview Rendering                    | Implement client-side loading of `DroidSansFallbackFull.ttf` via `opentype.js` and port `ruby.ts` for browser-side previews. | M2           | PLANNED |
-| 4   | M4: Browser-Side Font Compilation                           | Implement browser-side SVG font XML generation, convert to TTF via `svg2ttf`, and register via CSS Font Loading API.         | M3           | PLANNED |
-| 5   | M5: Browser-Side GSUB rules injection and WOFF2 Compression | Initialize Pyodide with vendored assets, run GSUB injection and WOFF2 compression on the TTF in-browser.                     | M2, M4       | PLANNED |
-| 6   | M6: Offline Storage & Cleanup                               | Store compiled fonts and settings in IndexedDB; remove server-side API middlewares in `vite.config.ts`.                      | M5           | PLANNED |
+| #   | Name                                                        | Scope                                                                                                                        | Dependencies | Status |
+| --- | ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------ | ------ |
+| 1   | M1: Test Suite & Infrastructure (E2E Track)                 | Design and implement the E2E/integration testing infrastructure for browser-side PWA features, including mocking.            | None         | DONE   |
+| 2   | M2: Dependency Vendoring & PWA Setup                        | Download Pyodide runtime, Python wheels (`fonttools`, `brotli`), `opentype.js`, and setup `manifest.json` and `sw.js`.       | None         | DONE   |
+| 3   | M3: Client-Side Vector Preview Rendering                    | Implement client-side loading of `DroidSansFallbackFull.ttf` via `opentype.js` and port `ruby.ts` for browser-side previews. | M2           | DONE   |
+| 4   | M4: Browser-Side Font Compilation                           | Implement browser-side SVG font XML generation, convert to TTF via `svg2ttf`, and register via CSS Font Loading API.         | M3           | DONE   |
+| 5   | M5: Browser-Side GSUB rules injection and WOFF2 Compression | Initialize Pyodide with vendored assets, run GSUB injection and WOFF2 compression on the TTF in-browser.                     | M2, M4       | DONE   |
+| 6   | M6: Offline Storage & Cleanup                               | Store compiled fonts and settings in IndexedDB; remove server-side API middlewares in `vite.config.ts`.                      | M5           | DONE   |
 
 ## Interface Contracts
 
@@ -89,9 +89,11 @@
 - `frontend/`
   - `index.html` - PWA entry-point, registers Service Worker
   - `main.ts` - Client-side state manager and interface controller
-  - `sw.js` - Service worker handling caching for offline capability
-  - `manifest.json` - PWA web manifest
-  - `vendor/` - Directory for vendored offline dependencies (Pyodide files and Python wheels)
+  - `compiler.ts` - Browser-side font compiler and Pyodide bridge
+  - `db.ts` - IndexedDB persistence layer
+  - `public/sw.js` - Service worker handling caching for offline capability
+  - `public/manifest.json` - PWA web manifest
+  - `public/pyodide/` - Vendored Pyodide runtime and Python wheels
 - `src/`
   - `ruby.ts` - Shared/browser-side layout computations
-  - `polyphonic.ts` - Font alternate mappings
+  - `polyphonic.ts` - Font alternate mappings (simplified & traditional)

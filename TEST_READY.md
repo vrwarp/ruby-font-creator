@@ -20,6 +20,8 @@ npm test
 - **Tier 2 (Edge Cases & Boundaries)**: 25 tests total. Covers boundary conditions, invalid inputs, error handling, and recovery.
 - **Tier 3 (Pairwise combinations)**: 5 tests total. Evaluates interactions between layout, squeeze strategy, and OpenType/GSUB activation.
 - **Tier 4 (Real-world workloads)**: 5 tests total. Models complete scenarios such as worshipping slides setup, cold boots, database recovery, and dynamically loading custom fonts.
+- **Production-module integration**: `browser-compiler.test.ts` exercises the real `frontend/compiler.ts` (layout engine + `svg2ttf` + mocked Pyodide hand-off); `db.test.ts` exercises the real `frontend/db.ts` IndexedDB layer.
+- **Polyphonic data validation**: `polyphonic.test.ts` semantically validates the dictionary (codepoint matches glyph, context characters neighbour the glyph inside their words, all characters exist in `src/data.json`, no duplicate triggers, simplified & traditional coverage).
 
 ## Feature Checklist
 

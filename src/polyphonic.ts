@@ -10,6 +10,16 @@ export interface PolyphonicEntry {
   alternates: AlternateReading[]
 }
 
+/**
+ * A context as emitted into polyphonic-map.json: `before`/`after` are
+ * "U+XXXX" codepoint strings derived from the character-based source contexts.
+ */
+export interface PolyphonicMapContext {
+  word: string
+  before?: string
+  after?: string
+}
+
 export type PolyphonicMap = Record<
   string,
   {
@@ -17,7 +27,7 @@ export type PolyphonicMap = Record<
     alternates: Array<{
       ruby: string
       codepoint: string
-      contexts: PolyphonicContext[]
+      contexts: PolyphonicMapContext[]
     }>
   }
 >
@@ -27,9 +37,21 @@ export type PolyphonicMap = Record<
  * worship vocabulary. Each entry maps a primary codepoint to one or more alternate
  * readings at PUA codepoints (U+E000–U+E0FF), with the bigram contexts that trigger
  * each alternate via GSUB calt substitution.
+ *
+ * Script coverage policy (the font must work for both simplified and traditional
+ * text):
+ * - Characters whose simplified and traditional forms differ get one entry per
+ *   form (e.g. 乐 U+4E50 and 樂 U+6A02), each with contexts in its own script.
+ * - Characters shared by both scripts (e.g. 行, 重, 得, 地) carry contexts for
+ *   BOTH scripts: every context word whose neighbour character differs between
+ *   scripts is listed twice (e.g. 银行 and 銀行).
+ * - `before`/`after` are written as characters, never raw codepoints, and must
+ *   be the actual neighbours of the glyph inside `word` — this is enforced by
+ *   test/polyphonic.test.ts.
  */
 export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
   {
+    // 行 is identical in simplified & traditional text — contexts cover both
     codepoint: 'U+884C',
     glyph: '行',
     alternates: [
@@ -37,19 +59,22 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
         ruby: 'háng',
         codepoint: 'U+E000',
         contexts: [
-          { word: '银行', before: 'U+9280' },
-          { word: '行业', after: 'U+4E1A' },
-          { word: '行列', after: 'U+5217' },
-          { word: '内行', before: 'U+5185' },
-          { word: '外行', before: 'U+5916' },
-          { word: '行家', after: 'U+5BB6' },
-          { word: '行距', after: 'U+8DDD' },
+          { word: '银行', before: '银' },
+          { word: '銀行', before: '銀' },
+          { word: '行业', after: '业' },
+          { word: '行業', after: '業' },
+          { word: '行列', after: '列' },
+          { word: '内行', before: '内' },
+          { word: '內行', before: '內' },
+          { word: '外行', before: '外' },
+          { word: '行家', after: '家' },
+          { word: '行距', after: '距' },
         ],
       },
     ],
   },
   {
-    // 重生 (born again, John 3:3) is central evangelical doctrine
+    // 重生 (born again, John 3:3) is central evangelical doctrine; shared glyph
     codepoint: 'U+91CD',
     glyph: '重',
     alternates: [
@@ -57,13 +82,15 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
         ruby: 'chóng',
         codepoint: 'U+E001',
         contexts: [
-          { word: '重生', after: 'U+751F' },
-          { word: '重新', after: 'U+65B0' },
-          { word: '重来', after: 'U+6765' },
-          { word: '重建', after: 'U+5EFA' },
-          { word: '重复', after: 'U+590D' },
-          { word: '重叠', after: 'U+53E0' },
-          { word: '重疊', after: 'U+758A' },
+          { word: '重生', after: '生' },
+          { word: '重新', after: '新' },
+          { word: '重来', after: '来' },
+          { word: '重來', after: '來' },
+          { word: '重建', after: '建' },
+          { word: '重复', after: '复' },
+          { word: '重複', after: '複' },
+          { word: '重叠', after: '叠' },
+          { word: '重疊', after: '疊' },
         ],
       },
     ],
@@ -77,10 +104,10 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
         ruby: 'yuè',
         codepoint: 'U+E002',
         contexts: [
-          { word: '音乐', before: 'U+97F3' },
-          { word: '圣乐', before: 'U+5723' },
-          { word: '乐器', after: 'U+5668' },
-          { word: '诗乐', before: 'U+8BD7' },
+          { word: '音乐', before: '音' },
+          { word: '圣乐', before: '圣' },
+          { word: '乐器', after: '器' },
+          { word: '诗乐', before: '诗' },
         ],
       },
     ],
@@ -93,7 +120,7 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
       {
         ruby: 'zhuàn',
         codepoint: 'U+E003',
-        contexts: [{ word: '行传', before: 'U+884C' }],
+        contexts: [{ word: '行传', before: '行' }],
       },
     ],
   },
@@ -106,15 +133,15 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
         ruby: 'cháng',
         codepoint: 'U+E004',
         contexts: [
-          { word: '长久', after: 'U+4E45' },
-          { word: '长存', after: 'U+5B58' },
-          { word: '长远', after: 'U+8FDC' },
-          { word: '长时', after: 'U+65F6' },
-          { word: '长期', after: 'U+671F' },
-          { word: '很长', before: 'U+5F88' },
-          { word: '极长', before: 'U+6781' },
-          { word: '特长', before: 'U+7279' },
-          { word: '细长', before: 'U+7EC6' },
+          { word: '长久', after: '久' },
+          { word: '长存', after: '存' },
+          { word: '长远', after: '远' },
+          { word: '长时', after: '时' },
+          { word: '长期', after: '期' },
+          { word: '很长', before: '很' },
+          { word: '极长', before: '极' },
+          { word: '特长', before: '特' },
+          { word: '细长', before: '细' },
         ],
       },
     ],
@@ -128,12 +155,12 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
         ruby: 'nàn',
         codepoint: 'U+E005',
         contexts: [
-          { word: '患难', before: 'U+60A3' },
-          { word: '苦难', before: 'U+82E6' },
-          { word: '受难', before: 'U+53D7' },
-          { word: '灾难', before: 'U+707E' },
-          { word: '难民', after: 'U+6C11' },
-          { word: '遇难', before: 'U+9047' },
+          { word: '患难', before: '患' },
+          { word: '苦难', before: '苦' },
+          { word: '受难', before: '受' },
+          { word: '灾难', before: '灾' },
+          { word: '难民', after: '民' },
+          { word: '遇难', before: '遇' },
         ],
       },
     ],
@@ -147,8 +174,8 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
         ruby: 'zhāo',
         codepoint: 'U+E006',
         contexts: [
-          { word: '朝露', after: 'U+9732' },
-          { word: '朝早', after: 'U+65E9' },
+          { word: '朝露', after: '露' },
+          { word: '朝早', after: '早' },
         ],
       },
     ],
@@ -162,11 +189,11 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
         ruby: 'xīng',
         codepoint: 'U+E007',
         contexts: [
-          { word: '复兴', before: 'U+590D' },
-          { word: '兴起', after: 'U+8D77' },
-          { word: '兴盛', after: 'U+76DB' },
-          { word: '兴旺', after: 'U+65FA' },
-          { word: '振兴', before: 'U+632F' },
+          { word: '复兴', before: '复' },
+          { word: '兴起', after: '起' },
+          { word: '兴盛', after: '盛' },
+          { word: '兴旺', after: '旺' },
+          { word: '振兴', before: '振' },
         ],
       },
     ],
@@ -180,10 +207,10 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
         ruby: 'yìng',
         codepoint: 'U+E008',
         contexts: [
-          { word: '回应', before: 'U+56DE' },
-          { word: '应验', after: 'U+9A8C' },
-          { word: '响应', before: 'U+54CD' },
-          { word: '感应', before: 'U+611F' },
+          { word: '回应', before: '回' },
+          { word: '应验', after: '验' },
+          { word: '响应', before: '响' },
+          { word: '感应', before: '感' },
         ],
       },
     ],
@@ -197,12 +224,12 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
         ruby: 'jìn',
         codepoint: 'U+E009',
         contexts: [
-          { word: '尽心', after: 'U+5FC3' },
-          { word: '尽性', after: 'U+6027' },
-          { word: '尽意', after: 'U+610F' },
-          { word: '尽力', after: 'U+529B' },
-          { word: '用尽', before: 'U+7528' },
-          { word: '竭尽', before: 'U+7AED' },
+          { word: '尽心', after: '心' },
+          { word: '尽性', after: '性' },
+          { word: '尽意', after: '意' },
+          { word: '尽力', after: '力' },
+          { word: '用尽', before: '用' },
+          { word: '竭尽', before: '竭' },
         ],
       },
     ],
@@ -216,9 +243,9 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
         ruby: 'tiáo',
         codepoint: 'U+E00A',
         contexts: [
-          { word: '调和', after: 'U+548C' },
-          { word: '调节', after: 'U+8282' },
-          { word: '调整', after: 'U+6574' },
+          { word: '调和', after: '和' },
+          { word: '调节', after: '节' },
+          { word: '调整', after: '整' },
         ],
       },
     ],
@@ -231,20 +258,21 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
         ruby: 'huán',
         codepoint: 'U+E00B',
         contexts: [
-          { word: '还债', after: 'U+503A' },
-          { word: '归还', before: 'U+5F52' },
-          { word: '还给', after: 'U+7ED9' },
-          { word: '退还', before: 'U+9000' },
-          { word: '偿还', before: 'U+507F' },
-          { word: '还手', after: 'U+624B' },
-          { word: '还书', after: 'U+4E66' },
-          { word: '还原', after: 'U+539F' },
-          { word: '还乡', after: 'U+4E61' },
+          { word: '还债', after: '债' },
+          { word: '归还', before: '归' },
+          { word: '还给', after: '给' },
+          { word: '退还', before: '退' },
+          { word: '偿还', before: '偿' },
+          { word: '还手', after: '手' },
+          { word: '还书', after: '书' },
+          { word: '还原', after: '原' },
+          { word: '还乡', after: '乡' },
         ],
       },
     ],
   },
   {
+    // Shared glyph — 爱好/愛好 and 好学/好學 cover both scripts
     codepoint: 'U+597D',
     glyph: '好',
     alternates: [
@@ -252,15 +280,17 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
         ruby: 'hào',
         codepoint: 'U+E00C',
         contexts: [
-          { word: '爱好', before: 'U+7231' },
-          { word: '好学', after: 'U+5B66' },
-          { word: '好奇', after: 'U+5947' },
+          { word: '爱好', before: '爱' },
+          { word: '愛好', before: '愛' },
+          { word: '好学', after: '学' },
+          { word: '好學', after: '學' },
+          { word: '好奇', after: '奇' },
         ],
       },
     ],
   },
   {
-    // 圣都 = holy city (Jerusalem); default dōu covers "all/every"
+    // 圣都/聖都 = holy city (Jerusalem); default dōu covers "all/every"; shared glyph
     codepoint: 'U+90FD',
     glyph: '都',
     alternates: [
@@ -268,9 +298,10 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
         ruby: 'dū',
         codepoint: 'U+E00D',
         contexts: [
-          { word: '圣都', before: 'U+5723' },
-          { word: '首都', before: 'U+9996' },
-          { word: '都市', after: 'U+5E02' },
+          { word: '圣都', before: '圣' },
+          { word: '聖都', before: '聖' },
+          { word: '首都', before: '首' },
+          { word: '都市', after: '市' },
         ],
       },
     ],
@@ -284,13 +315,13 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
         ruby: 'wéi',
         codepoint: 'U+E00E',
         contexts: [
-          { word: '成为', before: 'U+6210' },
-          { word: '行为', before: 'U+884C' },
-          { word: '作为', before: 'U+4F5C' },
-          { word: '称为', before: 'U+79F0' },
-          { word: '视为', before: 'U+89C6' },
-          { word: '以为', before: 'U+4EE5' },
-          { word: '认为', before: 'U+8BA4' },
+          { word: '成为', before: '成' },
+          { word: '行为', before: '行' },
+          { word: '作为', before: '作' },
+          { word: '称为', before: '称' },
+          { word: '视为', before: '视' },
+          { word: '以为', before: '以' },
+          { word: '认为', before: '认' },
         ],
       },
     ],
@@ -304,9 +335,9 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
         ruby: 'chǔ',
         codepoint: 'U+E00F',
         contexts: [
-          { word: '处理', after: 'U+7406' },
-          { word: '处置', after: 'U+7F6E' },
-          { word: '处境', after: 'U+5883' },
+          { word: '处理', after: '理' },
+          { word: '处置', after: '置' },
+          { word: '处境', after: '境' },
         ],
       },
     ],
@@ -319,10 +350,10 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
         ruby: 'yuè',
         codepoint: 'U+E010',
         contexts: [
-          { word: '音樂', before: 'U+97F3' },
-          { word: '聖樂', before: 'U+8056' },
-          { word: '樂器', after: 'U+5668' },
-          { word: '詩樂', before: 'U+8A69' },
+          { word: '音樂', before: '音' },
+          { word: '聖樂', before: '聖' },
+          { word: '樂器', after: '器' },
+          { word: '詩樂', before: '詩' },
         ],
       },
     ],
@@ -334,7 +365,7 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
       {
         ruby: 'zhuàn',
         codepoint: 'U+E011',
-        contexts: [{ word: '行傳', before: 'U+884C' }],
+        contexts: [{ word: '行傳', before: '行' }],
       },
     ],
   },
@@ -346,15 +377,15 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
         ruby: 'cháng',
         codepoint: 'U+E012',
         contexts: [
-          { word: '長久', after: 'U+4E45' },
-          { word: '長存', after: 'U+5B58' },
-          { word: '長遠', after: 'U+8FDC' },
-          { word: '長時', after: 'U+65F6' },
-          { word: '長期', after: 'U+671F' },
-          { word: '很長', before: 'U+5F88' },
-          { word: '極長', before: 'U+6975' },
-          { word: '特長', before: 'U+7279' },
-          { word: '細長', before: 'U+7D30' },
+          { word: '長久', after: '久' },
+          { word: '長存', after: '存' },
+          { word: '長遠', after: '遠' },
+          { word: '長時', after: '時' },
+          { word: '長期', after: '期' },
+          { word: '很長', before: '很' },
+          { word: '極長', before: '極' },
+          { word: '特長', before: '特' },
+          { word: '細長', before: '細' },
         ],
       },
     ],
@@ -367,12 +398,12 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
         ruby: 'nàn',
         codepoint: 'U+E013',
         contexts: [
-          { word: '患難', before: 'U+60A3' },
-          { word: '苦難', before: 'U+82E6' },
-          { word: '受難', before: 'U+53D7' },
-          { word: '災難', before: 'U+707E' },
-          { word: '難民', after: 'U+6C11' },
-          { word: '遇難', before: 'U+9047' },
+          { word: '患難', before: '患' },
+          { word: '苦難', before: '苦' },
+          { word: '受難', before: '受' },
+          { word: '災難', before: '災' },
+          { word: '難民', after: '民' },
+          { word: '遇難', before: '遇' },
         ],
       },
     ],
@@ -385,11 +416,11 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
         ruby: 'xīng',
         codepoint: 'U+E014',
         contexts: [
-          { word: '復興', before: 'U+590D' },
-          { word: '興起', after: 'U+8D77' },
-          { word: '興盛', after: 'U+76DB' },
-          { word: '興旺', after: 'U+65FA' },
-          { word: '振興', before: 'U+632F' },
+          { word: '復興', before: '復' },
+          { word: '興起', after: '起' },
+          { word: '興盛', after: '盛' },
+          { word: '興旺', after: '旺' },
+          { word: '振興', before: '振' },
         ],
       },
     ],
@@ -402,10 +433,10 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
         ruby: 'yìng',
         codepoint: 'U+E015',
         contexts: [
-          { word: '回應', before: 'U+56DE' },
-          { word: '應驗', after: 'U+9A8C' },
-          { word: '響應', before: 'U+97FF' },
-          { word: '感應', before: 'U+611F' },
+          { word: '回應', before: '回' },
+          { word: '應驗', after: '驗' },
+          { word: '響應', before: '響' },
+          { word: '感應', before: '感' },
         ],
       },
     ],
@@ -418,12 +449,12 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
         ruby: 'jìn',
         codepoint: 'U+E016',
         contexts: [
-          { word: '盡心', after: 'U+5FC3' },
-          { word: '盡性', after: 'U+6027' },
-          { word: '盡意', after: 'U+610F' },
-          { word: '盡力', after: 'U+529B' },
-          { word: '用盡', before: 'U+7528' },
-          { word: '竭盡', before: 'U+7AED' },
+          { word: '盡心', after: '心' },
+          { word: '盡性', after: '性' },
+          { word: '盡意', after: '意' },
+          { word: '盡力', after: '力' },
+          { word: '用盡', before: '用' },
+          { word: '竭盡', before: '竭' },
         ],
       },
     ],
@@ -436,9 +467,9 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
         ruby: 'tiáo',
         codepoint: 'U+E017',
         contexts: [
-          { word: '調和', after: 'U+548C' },
-          { word: '調節', after: 'U+7BC0' },
-          { word: '調整', after: 'U+6574' },
+          { word: '調和', after: '和' },
+          { word: '調節', after: '節' },
+          { word: '調整', after: '整' },
         ],
       },
     ],
@@ -451,15 +482,15 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
         ruby: 'huán',
         codepoint: 'U+E018',
         contexts: [
-          { word: '還債', after: 'U+50B5' },
-          { word: '歸還', before: 'U+6B78' },
-          { word: '還給', after: 'U+7D66' },
-          { word: '退還', before: 'U+9000' },
-          { word: '償還', before: 'U+511F' },
-          { word: '還手', after: 'U+624B' },
-          { word: '還書', after: 'U+66F8' },
-          { word: '還原', after: 'U+539F' },
-          { word: '還鄉', after: 'U+9109' },
+          { word: '還債', after: '債' },
+          { word: '歸還', before: '歸' },
+          { word: '還給', after: '給' },
+          { word: '退還', before: '退' },
+          { word: '償還', before: '償' },
+          { word: '還手', after: '手' },
+          { word: '還書', after: '書' },
+          { word: '還原', after: '原' },
+          { word: '還鄉', after: '鄉' },
         ],
       },
     ],
@@ -472,13 +503,13 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
         ruby: 'wéi',
         codepoint: 'U+E019',
         contexts: [
-          { word: '成為', before: 'U+6210' },
-          { word: '行為', before: 'U+884C' },
-          { word: '作為', before: 'U+4F5C' },
-          { word: '稱為', before: 'U+7A31' },
-          { word: '視為', before: 'U+8996' },
-          { word: '以為', before: 'U+4EE5' },
-          { word: '認為', before: 'U+8A8D' },
+          { word: '成為', before: '成' },
+          { word: '行為', before: '行' },
+          { word: '作為', before: '作' },
+          { word: '稱為', before: '稱' },
+          { word: '視為', before: '視' },
+          { word: '以為', before: '以' },
+          { word: '認為', before: '認' },
         ],
       },
     ],
@@ -491,25 +522,28 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
         ruby: 'chǔ',
         codepoint: 'U+E01A',
         contexts: [
-          { word: '處理', after: 'U+7406' },
-          { word: '處置', after: 'U+7F6E' },
-          { word: '處境', after: 'U+5883' },
+          { word: '處理', after: '理' },
+          { word: '處置', after: '置' },
+          { word: '處境', after: '境' },
         ],
       },
     ],
   },
   {
+    // Shared glyph
     codepoint: 'U+964D',
     glyph: '降',
     alternates: [
       {
         ruby: 'xiáng',
         codepoint: 'U+E01B',
-        contexts: [{ word: '投降', before: 'U+6295' }],
+        contexts: [{ word: '投降', before: '投' }],
       },
     ],
   },
   {
+    // 恶恶 (wù è, "hate evil", Rom 12:9): the FIRST 恶 reads wù, so the trigger
+    // is the following 恶, not a preceding one
     codepoint: 'U+6076',
     glyph: '恶',
     alternates: [
@@ -517,9 +551,9 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
         ruby: 'wù',
         codepoint: 'U+E01C',
         contexts: [
-          { word: '厌恶', before: 'U+538C' },
-          { word: '可恶', before: 'U+53EF' },
-          { word: '恶恶', before: 'U+6076' },
+          { word: '厌恶', before: '厌' },
+          { word: '可恶', before: '可' },
+          { word: '恶恶', after: '恶' },
         ],
       },
     ],
@@ -532,9 +566,9 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
         ruby: 'wù',
         codepoint: 'U+E01D',
         contexts: [
-          { word: '厭惡', before: 'U+53AD' },
-          { word: '可惡', before: 'U+53EF' },
-          { word: '惡惡', before: 'U+60E1' },
+          { word: '厭惡', before: '厭' },
+          { word: '可惡', before: '可' },
+          { word: '惡惡', after: '惡' },
         ],
       },
     ],
@@ -546,7 +580,7 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
       {
         ruby: 'dàn',
         codepoint: 'U+E01E',
-        contexts: [{ word: '子弹', before: 'U+5B50' }],
+        contexts: [{ word: '子弹', before: '子' }],
       },
     ],
   },
@@ -557,7 +591,7 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
       {
         ruby: 'dàn',
         codepoint: 'U+E01F',
-        contexts: [{ word: '子彈', before: 'U+5B50' }],
+        contexts: [{ word: '子彈', before: '子' }],
       },
     ],
   },
@@ -569,8 +603,8 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
         ruby: 'chuāng',
         codepoint: 'U+E020',
         contexts: [
-          { word: '创伤', after: 'U+4F24' },
-          { word: '受创', before: 'U+53D7' },
+          { word: '创伤', after: '伤' },
+          { word: '受创', before: '受' },
         ],
       },
     ],
@@ -583,13 +617,14 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
         ruby: 'chuāng',
         codepoint: 'U+E021',
         contexts: [
-          { word: '創傷', after: 'U+50B7' },
-          { word: '受創', before: 'U+53D7' },
+          { word: '創傷', after: '傷' },
+          { word: '受創', before: '受' },
         ],
       },
     ],
   },
   {
+    // Shared glyph; 附/唱/泥/面/牌/了 are shared too, 麵 is the traditional form of 面
     codepoint: 'U+548C',
     glyph: '和',
     alternates: [
@@ -597,36 +632,35 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
         ruby: 'hè',
         codepoint: 'U+E022',
         contexts: [
-          { word: '附和', before: 'U+9644' },
-          { word: '唱和', before: 'U+5531' },
-          { word: '响应', before: 'U+54CD' },
-          { word: '響應', before: 'U+97FF' },
+          { word: '附和', before: '附' },
+          { word: '唱和', before: '唱' },
         ],
       },
       {
         ruby: 'huò',
         codepoint: 'U+E033',
-        contexts: [{ word: '和泥', after: 'U+6CE5' }],
+        contexts: [{ word: '和泥', after: '泥' }],
       },
       {
         ruby: 'huó',
         codepoint: 'U+E034',
         contexts: [
-          { word: '和面', after: 'U+9762' },
-          { word: '和麵', after: 'U+9EB5' },
+          { word: '和面', after: '面' },
+          { word: '和麵', after: '麵' },
         ],
       },
       {
         ruby: 'hú',
         codepoint: 'U+E035',
         contexts: [
-          { word: '和牌', after: 'U+724C' },
-          { word: '和了', after: 'U+4E86' },
+          { word: '和牌', after: '牌' },
+          { word: '和了', after: '了' },
         ],
       },
     ],
   },
   {
+    // Shared glyph — contexts cover both scripts
     codepoint: 'U+5DEE',
     glyph: '差',
     alternates: [
@@ -634,38 +668,38 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
         ruby: 'chāi',
         codepoint: 'U+E038',
         contexts: [
-          { word: '出差', before: 'U+51FA' },
-          { word: '差事', after: 'U+4E8B' },
-          { word: '公差', before: 'U+516C' },
-          { word: '邮差', before: 'U+90AE' },
-          { word: '郵差', before: 'U+90F5' },
+          { word: '出差', before: '出' },
+          { word: '差事', after: '事' },
+          { word: '公差', before: '公' },
+          { word: '邮差', before: '邮' },
+          { word: '郵差', before: '郵' },
         ],
       },
       {
         ruby: 'chā',
         codepoint: 'U+E039',
         contexts: [
-          { word: '误差', before: 'U+8BEF' },
-          { word: '誤差', before: 'U+8AA4' },
-          { word: '偏差', before: 'U+504F' },
-          { word: '时差', before: 'U+65F6' },
-          { word: '時差', before: 'U+6642' },
-          { word: '极差', before: 'U+6781' },
-          { word: '極差', before: 'U+6975' },
-          { word: '差别', after: 'U+522B' },
-          { word: '差別', after: 'U+5225' },
-          { word: '差异', after: 'U+5F02' },
-          { word: '差異', after: 'U+7570' },
-          { word: '差错', after: 'U+9519' },
-          { word: '差錯', after: 'U+932B' },
+          { word: '误差', before: '误' },
+          { word: '誤差', before: '誤' },
+          { word: '偏差', before: '偏' },
+          { word: '时差', before: '时' },
+          { word: '時差', before: '時' },
+          { word: '极差', before: '极' },
+          { word: '極差', before: '極' },
+          { word: '差别', after: '别' },
+          { word: '差別', after: '別' },
+          { word: '差异', after: '异' },
+          { word: '差異', after: '異' },
+          { word: '差错', after: '错' },
+          { word: '差錯', after: '錯' },
         ],
       },
       {
         ruby: 'cī',
         codepoint: 'U+E03A',
         contexts: [
-          { word: '参差', before: 'U+53C2' },
-          { word: '參差', before: 'U+53C3' },
+          { word: '参差', before: '参' },
+          { word: '參差', before: '參' },
         ],
       },
     ],
@@ -677,29 +711,30 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
       {
         ruby: 'jiào',
         codepoint: 'U+E023',
-        contexts: [{ word: '睡觉', before: 'U+7761' }],
+        contexts: [{ word: '睡觉', before: '睡' }],
       },
     ],
   },
   {
-    codepoint: 'U+8AFA',
+    codepoint: 'U+89BA',
     glyph: '覺',
     alternates: [
       {
         ruby: 'jiào',
         codepoint: 'U+E024',
-        contexts: [{ word: '睡覺', before: 'U+7761' }],
+        contexts: [{ word: '睡覺', before: '睡' }],
       },
     ],
   },
   {
+    // Shared glyph
     codepoint: 'U+5927',
     glyph: '大',
     alternates: [
       {
         ruby: 'dài',
         codepoint: 'U+E025',
-        contexts: [{ word: '大夫', after: 'U+592B' }],
+        contexts: [{ word: '大夫', after: '夫' }],
       },
     ],
   },
@@ -710,7 +745,7 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
       {
         ruby: 'dàn',
         codepoint: 'U+E026',
-        contexts: [{ word: '重担', before: 'U+91CD' }],
+        contexts: [{ word: '重担', before: '重' }],
       },
     ],
   },
@@ -721,11 +756,12 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
       {
         ruby: 'dàn',
         codepoint: 'U+E027',
-        contexts: [{ word: '重擔', before: 'U+91CD' }],
+        contexts: [{ word: '重擔', before: '重' }],
       },
     ],
   },
   {
+    // Shared glyph — 教书/教書 cover both scripts
     codepoint: 'U+6559',
     glyph: '教',
     alternates: [
@@ -733,13 +769,14 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
         ruby: 'jiāo',
         codepoint: 'U+E028',
         contexts: [
-          { word: '教书', after: 'U+4E66' },
-          { word: '教書', after: 'U+66F8' },
+          { word: '教书', after: '书' },
+          { word: '教書', after: '書' },
         ],
       },
     ],
   },
   {
+    // Shared glyph; all context characters are shared between scripts
     codepoint: 'U+5012',
     glyph: '倒',
     alternates: [
@@ -747,17 +784,18 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
         ruby: 'dǎo',
         codepoint: 'U+E029',
         contexts: [
-          { word: '倒在', after: 'U+5728' },
-          { word: '倒下', after: 'U+4E0B' },
-          { word: '碰倒', before: 'U+78B0' },
-          { word: '跌倒', before: 'U+8DCC' },
-          { word: '摔倒', before: 'U+6454' },
-          { word: '打倒', before: 'U+6253' },
+          { word: '倒在', after: '在' },
+          { word: '倒下', after: '下' },
+          { word: '碰倒', before: '碰' },
+          { word: '跌倒', before: '跌' },
+          { word: '摔倒', before: '摔' },
+          { word: '打倒', before: '打' },
         ],
       },
     ],
   },
   {
+    // Shared glyph — contexts cover both scripts
     codepoint: 'U+5730',
     glyph: '地',
     alternates: [
@@ -765,34 +803,34 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
         ruby: 'dì',
         codepoint: 'U+E02A',
         contexts: [
-          { word: '地上', after: 'U+4E0A' },
-          { word: '地下', after: 'U+4E0B' },
-          { word: '地方', after: 'U+65B9' },
-          { word: '地球', after: 'U+7403' },
-          { word: '地图', after: 'U+56FE' },
-          { word: '地圖', after: 'U+5716' },
-          { word: '地址', after: 'U+5740' },
-          { word: '地狱', after: 'U+7231' },
-          { word: '地獄', after: 'U+7344' },
-          { word: '地位', after: 'U+4F4D' },
-          { word: '地带', after: 'U+5E26' },
-          { word: '地帶', after: 'U+5E36' },
-          { word: '地步', after: 'U+6B65' },
-          { word: '地表', after: 'U+8868' },
-          { word: '地势', after: 'U+52BF' },
-          { word: '地勢', after: 'U+52E2' },
-          { word: '地契', after: 'U+5951' },
-          { word: '土地', before: 'U+571F' },
-          { word: '各地', before: 'U+5404' },
-          { word: '大地', before: 'U+5927' },
-          { word: '墓地', before: 'U+5893' },
-          { word: '目的地', before: 'U+7684' },
-          { word: '圣地', before: 'U+5723' },
-          { word: '聖地', before: 'U+8056' },
-          { word: '盆地', before: 'U+76C6' },
-          { word: '草地', before: 'U+8349' },
-          { word: '平地', before: 'U+5E73' },
-          { word: '林地', before: 'U+6797' },
+          { word: '地上', after: '上' },
+          { word: '地下', after: '下' },
+          { word: '地方', after: '方' },
+          { word: '地球', after: '球' },
+          { word: '地图', after: '图' },
+          { word: '地圖', after: '圖' },
+          { word: '地址', after: '址' },
+          { word: '地狱', after: '狱' },
+          { word: '地獄', after: '獄' },
+          { word: '地位', after: '位' },
+          { word: '地带', after: '带' },
+          { word: '地帶', after: '帶' },
+          { word: '地步', after: '步' },
+          { word: '地表', after: '表' },
+          { word: '地势', after: '势' },
+          { word: '地勢', after: '勢' },
+          { word: '地契', after: '契' },
+          { word: '土地', before: '土' },
+          { word: '各地', before: '各' },
+          { word: '大地', before: '大' },
+          { word: '墓地', before: '墓' },
+          { word: '目的地', before: '的' },
+          { word: '圣地', before: '圣' },
+          { word: '聖地', before: '聖' },
+          { word: '盆地', before: '盆' },
+          { word: '草地', before: '草' },
+          { word: '平地', before: '平' },
+          { word: '林地', before: '林' },
         ],
       },
     ],
@@ -805,11 +843,11 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
         ruby: 'jiá',
         codepoint: 'U+E02B',
         contexts: [
-          { word: '夹杂', after: 'U+6742' },
-          { word: '夹克', after: 'U+514B' },
-          { word: '夹衣', after: 'U+8863' },
-          { word: '夹道', after: 'U+9053' },
-          { word: '夹攻', after: 'U+653B' },
+          { word: '夹杂', after: '杂' },
+          { word: '夹克', after: '克' },
+          { word: '夹衣', after: '衣' },
+          { word: '夹道', after: '道' },
+          { word: '夹攻', after: '攻' },
         ],
       },
     ],
@@ -822,16 +860,17 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
         ruby: 'jiá',
         codepoint: 'U+E02C',
         contexts: [
-          { word: '夾雜', after: 'U+96DC' },
-          { word: '夾克', after: 'U+514B' },
-          { word: '夾衣', after: 'U+8863' },
-          { word: '夾道', after: 'U+9053' },
-          { word: '夾攻', after: 'U+653B' },
+          { word: '夾雜', after: '雜' },
+          { word: '夾克', after: '克' },
+          { word: '夾衣', after: '衣' },
+          { word: '夾道', after: '道' },
+          { word: '夾攻', after: '攻' },
         ],
       },
     ],
   },
   {
+    // Shared glyph — contexts cover both scripts
     codepoint: 'U+5F97',
     glyph: '得',
     alternates: [
@@ -839,46 +878,43 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
         ruby: 'de',
         codepoint: 'U+E02D',
         contexts: [
-          { word: '觉得', before: 'U+89C9' },
-          { word: '覺得', before: 'U+8AFA' },
-          { word: '变得', before: 'U+53D8' },
-          { word: '變得', before: 'U+8B8A' },
-          { word: '高兴得', before: 'U+5174' },
-          { word: '高興得', before: 'U+8208' },
-          { word: '得很', after: 'U+5F88' },
-          { word: '看得到', before: 'U+770B' },
-          { word: '听得到', before: 'U+542C' },
-          { word: '聽得到', before: 'U+807D' },
-          { word: '来得及', before: 'U+6765' },
-          { word: '來得及', before: 'U+4F86' },
-          { word: '来得及', after: 'U+53CA' },
-          { word: '看得', after: 'U+898B' },
-          { word: '看得', after: 'U+89C1' },
-          { word: '出得', after: 'U+53BB' },
-          { word: '进得', after: 'U+6765' },
-          { word: '進得', after: 'U+4F86' },
-          { word: '吃得', after: 'U+5B8C' },
-          { word: '做得', after: 'U+5230' },
-          { word: '做得', before: 'U+505A' },
+          { word: '觉得', before: '觉' },
+          { word: '覺得', before: '覺' },
+          { word: '变得', before: '变' },
+          { word: '變得', before: '變' },
+          { word: '高兴得', before: '兴' },
+          { word: '高興得', before: '興' },
+          { word: '得很', after: '很' },
+          { word: '看得到', before: '看' },
+          { word: '听得到', before: '听' },
+          { word: '聽得到', before: '聽' },
+          { word: '来得及', before: '来', after: '及' },
+          { word: '來得及', before: '來' },
+          { word: '看得見', after: '見' },
+          { word: '看得见', after: '见' },
+          { word: '出得去', after: '去' },
+          { word: '进得来', after: '来' },
+          { word: '進得來', after: '來' },
+          { word: '吃得完', after: '完' },
+          { word: '做得到', before: '做', after: '到' },
         ],
       },
       {
         ruby: 'děi',
         codepoint: 'U+E02E',
         contexts: [
-          { word: '你得', before: 'U+4F60' },
-          { word: '他得', before: 'U+4ED6' },
-          { word: '我得', before: 'U+6211' },
-          { word: '们得', before: 'U+4EEC' },
-          { word: '們得', before: 'U+5011' },
-          { word: '谁得', before: 'U+8C01' },
-          { word: '誰得', before: 'U+8AA0' },
-          { word: '都得', before: 'U+90FD' },
-          { word: '总得', before: 'U+603B' },
-          { word: '總得', before: 'U+7E3D' },
-          { word: '非得', before: 'U+975E' },
-          { word: '不得不', before: 'U+4E0D' },
-          { word: '不得不', after: 'U+4E0D' },
+          { word: '你得', before: '你' },
+          { word: '他得', before: '他' },
+          { word: '我得', before: '我' },
+          { word: '们得', before: '们' },
+          { word: '們得', before: '們' },
+          { word: '谁得', before: '谁' },
+          { word: '誰得', before: '誰' },
+          { word: '都得', before: '都' },
+          { word: '总得', before: '总' },
+          { word: '總得', before: '總' },
+          { word: '非得', before: '非' },
+          { word: '不得不', before: '不', after: '不' },
         ],
       },
     ],
@@ -891,21 +927,20 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
         ruby: 'zháo',
         codepoint: 'U+E02F',
         contexts: [
-          { word: '睡着', before: 'U+7761' },
-          { word: '着凉', after: 'U+51C9' },
-          { word: '着凉', after: 'U+6D9B' },
-          { word: '着火', after: 'U+706B' },
-          { word: '着急', after: 'U+6225' },
-          { word: '着迷', after: 'U+8FF7' },
+          { word: '睡着', before: '睡' },
+          { word: '着凉', after: '凉' },
+          { word: '着火', after: '火' },
+          { word: '着急', after: '急' },
+          { word: '着迷', after: '迷' },
         ],
       },
       {
         ruby: 'zhāo',
         codepoint: 'U+E030',
         contexts: [
-          { word: '一着', before: 'U+4E00' },
-          { word: '着数', after: 'U+6570' },
-          { word: '着數', after: 'U+6578' },
+          { word: '一着', before: '一' },
+          { word: '着数', after: '数' },
+          { word: '着數', after: '數' },
         ],
       },
     ],
@@ -918,21 +953,20 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
         ruby: 'zháo',
         codepoint: 'U+E031',
         contexts: [
-          { word: '睡著', before: 'U+7761' },
-          { word: '著涼', after: 'U+51C9' },
-          { word: '著涼', after: 'U+6D9B' },
-          { word: '著火', after: 'U+706B' },
-          { word: '著急', after: 'U+6225' },
-          { word: '著迷', after: 'U+8FF7' },
+          { word: '睡著', before: '睡' },
+          { word: '著涼', after: '涼' },
+          { word: '著火', after: '火' },
+          { word: '著急', after: '急' },
+          { word: '著迷', after: '迷' },
         ],
       },
       {
         ruby: 'zhāo',
         codepoint: 'U+E032',
         contexts: [
-          { word: '一著', before: 'U+4E00' },
-          { word: '著数', after: 'U+6570' },
-          { word: '著數', after: 'U+6578' },
+          { word: '一著', before: '一' },
+          { word: '著数', after: '数' },
+          { word: '著數', after: '數' },
         ],
       },
     ],
@@ -944,7 +978,7 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
       {
         ruby: 'cēn',
         codepoint: 'U+E036',
-        contexts: [{ word: '参差', after: 'U+5DEE' }],
+        contexts: [{ word: '参差', after: '差' }],
       },
     ],
   },
@@ -955,7 +989,7 @@ export const POLYPHONIC_ENTRIES: PolyphonicEntry[] = [
       {
         ruby: 'cēn',
         codepoint: 'U+E037',
-        contexts: [{ word: '參差', after: 'U+5DEE' }],
+        contexts: [{ word: '參差', after: '差' }],
       },
     ],
   },
@@ -968,9 +1002,24 @@ export function getAlternateGlyphEntries(): GlyphEntry[] {
   )
 }
 
+/** Converts a single character to its "U+XXXX" codepoint string. */
+export function charToCodepoint(char: string): string {
+  return 'U+' + char.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')
+}
+
+function toMapContext(ctx: PolyphonicContext): PolyphonicMapContext {
+  const mapCtx: PolyphonicMapContext = { word: ctx.word }
+  if (ctx.before) mapCtx.before = charToCodepoint(ctx.before)
+  if (ctx.after) mapCtx.after = charToCodepoint(ctx.after)
+  return mapCtx
+}
+
 /**
  * Builds the polyphonic-map.json structure, looking up primary ruby values
  * from the main dataset so the map is the single source of truth for consumers.
+ * Character-based contexts are converted to "U+XXXX" codepoints here.
+ * Entries whose primary codepoint is absent from `mainData` are skipped —
+ * intentional for subset builds (e.g. the live tester font).
  */
 export function buildPolyphonicMap(mainData: GlyphEntry[]): PolyphonicMap {
   const byCodepoint = new Map(mainData.map((e) => [e.codepoint, e]))
@@ -985,7 +1034,7 @@ export function buildPolyphonicMap(mainData: GlyphEntry[]): PolyphonicMap {
       alternates: entry.alternates.map(({ ruby, codepoint, contexts }) => ({
         ruby,
         codepoint,
-        contexts,
+        contexts: contexts.map(toMapContext),
       })),
     }
   }

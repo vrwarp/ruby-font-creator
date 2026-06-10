@@ -1,10 +1,111 @@
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import { test, expect } from 'vitest'
 import {
   POLYPHONIC_ENTRIES,
   getAlternateGlyphEntries,
   buildPolyphonicMap,
+  charToCodepoint,
 } from '../src/polyphonic.js'
 import type { GlyphEntry } from '../src/types.js'
+
+const mainDataset: GlyphEntry[] = JSON.parse(
+  readFileSync(path.resolve(import.meta.dirname, '../src/data.json'), 'utf-8'),
+)
+
+test('POLYPHONIC_ENTRIES: entry codepoint matches its glyph character', () => {
+  for (const entry of POLYPHONIC_ENTRIES) {
+    expect(
+      charToCodepoint(entry.glyph),
+      `entry ${entry.glyph} declares ${entry.codepoint}`,
+    ).toBe(entry.codepoint)
+  }
+})
+
+test('POLYPHONIC_ENTRIES: context before/after characters are adjacent to the glyph in word', () => {
+  for (const entry of POLYPHONIC_ENTRIES) {
+    for (const alt of entry.alternates) {
+      for (const ctx of alt.contexts) {
+        const chars = [...ctx.word]
+        const label = `${entry.glyph} (${alt.ruby}) word="${ctx.word}"`
+
+        if (ctx.before) expect([...ctx.before], label).toHaveLength(1)
+        if (ctx.after) expect([...ctx.after], label).toHaveLength(1)
+
+        // The glyph must occur in the word with the declared neighbours at
+        // some occurrence (e.g. 恶恶 matches at the first 恶 for after=恶).
+        const matches = chars.some(
+          (c, i) =>
+            c === entry.glyph &&
+            (!ctx.before || chars[i - 1] === ctx.before) &&
+            (!ctx.after || chars[i + 1] === ctx.after),
+        )
+        expect(
+          matches,
+          `${label} before=${ctx.before} after=${ctx.after}`,
+        ).toBe(true)
+      }
+    }
+  }
+})
+
+test('POLYPHONIC_ENTRIES: no duplicate trigger (direction + character) within an entry', () => {
+  for (const entry of POLYPHONIC_ENTRIES) {
+    const seen = new Set<string>()
+    for (const alt of entry.alternates) {
+      for (const ctx of alt.contexts) {
+        for (const trigger of [
+          ctx.before ? `before:${ctx.before}` : null,
+          ctx.after ? `after:${ctx.after}` : null,
+        ]) {
+          if (!trigger) continue
+          expect(
+            seen.has(trigger),
+            `${entry.glyph}: duplicate trigger ${trigger} (word ${ctx.word}) would create conflicting/duplicate GSUB rules`,
+          ).toBe(false)
+          seen.add(trigger)
+        }
+      }
+    }
+  }
+})
+
+test('POLYPHONIC_ENTRIES: primary and context characters exist in src/data.json', () => {
+  const datasetCodepoints = new Set(mainDataset.map((e) => e.codepoint))
+  for (const entry of POLYPHONIC_ENTRIES) {
+    expect(
+      datasetCodepoints.has(entry.codepoint),
+      `primary ${entry.glyph} ${entry.codepoint} missing from dataset — its glyph would not be in the font`,
+    ).toBe(true)
+    for (const alt of entry.alternates) {
+      for (const ctx of alt.contexts) {
+        for (const neighbour of [ctx.before, ctx.after]) {
+          if (!neighbour) continue
+          expect(
+            datasetCodepoints.has(charToCodepoint(neighbour)),
+            `context char ${neighbour} (${charToCodepoint(neighbour)}, word ${ctx.word}) missing from dataset — its GSUB rule would be dropped`,
+          ).toBe(true)
+        }
+      }
+    }
+  }
+})
+
+test('POLYPHONIC_ENTRIES: simplified/traditional coverage for shared glyphs', () => {
+  const map = buildPolyphonicMap(mainDataset)
+
+  // 行 is shared between scripts: both 银行 (S) and 銀行 (T) must trigger háng
+  const hang = map['行'].alternates[0]
+  const triggers = hang.contexts.map((c) => c.before ?? c.after)
+  expect(triggers).toContain('U+94F6') // 银
+  expect(triggers).toContain('U+9280') // 銀
+  expect(triggers).toContain('U+4E1A') // 业
+  expect(triggers).toContain('U+696D') // 業
+
+  // Traditional 覺 maps to U+89BA (not 諺 U+8AFA) with default jué
+  expect(map['覺'].default.codepoint).toBe('U+89BA')
+  expect(map['覺'].default.ruby).toBe('jué')
+})
 
 test('POLYPHONIC_ENTRIES: all PUA codepoints are in U+E000–U+F8FF range', () => {
   for (const entry of POLYPHONIC_ENTRIES) {

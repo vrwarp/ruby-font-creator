@@ -1,8 +1,13 @@
-/** A bigram context that triggers an alternate GSUB reading */
+/**
+ * A bigram context that triggers an alternate GSUB reading.
+ * `before`/`after` are the adjacent characters themselves and must match the
+ * neighbours of the glyph inside `word`; U+XXXX codepoints are derived from
+ * them when the polyphonic map is built (see buildPolyphonicMap).
+ */
 export interface PolyphonicContext {
-  word: string // the word this context represents, e.g. "银行"
-  before?: string // codepoint of the preceding character, e.g. "U+9280"
-  after?: string // codepoint of the following character, e.g. "U+4E1A"
+  word: string // the full word this context represents, e.g. "银行"
+  before?: string // character immediately preceding the glyph, e.g. "银"
+  after?: string // character immediately following the glyph, e.g. "业"
 }
 
 /** An alternate pronunciation for a polyphonic character, mapped to a PUA codepoint */

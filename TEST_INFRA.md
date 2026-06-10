@@ -110,3 +110,27 @@ To guarantee robust coverage, tests are categorized into four distinct Tiers:
 | **Total**     | **Comprehensive E2E Suite Coverage**                           | $\ge \mathbf{60}$ **tests** | **60 tests**      |
 
 All tests must run and pass with zero failures under `npm test`.
+
+---
+
+## 6. Production-Module Integration Tests
+
+In addition to the mock-boundary suites above, two suites exercise the
+production frontend modules directly (only the browser/Pyodide boundary is
+mocked):
+
+- `test/e2e/browser-compiler.test.ts` — runs the real `frontend/compiler.ts`
+  (`compileFontInBrowser`, `patchFontInBrowser`) with the real layout engine
+  and `svg2ttf`, then parses the resulting TTF with `opentype.js` to verify
+  cmap coverage, fixed advance widths, and the GSUB/WOFF2 hand-off to Pyodide.
+- `test/e2e/db.test.ts` — runs the real `frontend/db.ts` IndexedDB layer
+  (both the compiled-fonts and pinyin-fonts stores) against the mock
+  IndexedDB, verifying keyPath-based round-trips, overwrites, listing, and
+  deletion.
+
+`test/polyphonic.test.ts` additionally validates the polyphonic dictionary
+semantically: entry codepoints must match their glyph characters, every
+context's `before`/`after` character must actually neighbour the glyph inside
+its `word`, all referenced characters must exist in `src/data.json`, no entry
+may declare duplicate triggers, and shared-glyph entries must cover both
+simplified and traditional contexts.
