@@ -1,35 +1,42 @@
-import svg2ttf from 'svg2ttf'
-import svgpath from 'svgpath'
-import ruby from '../src/ruby.js'
+import { compileTtf } from '../src/compile.js'
 import type { GlyphEntry, BuildConfig } from '../src/types.js'
 import { buildPolyphonicMap } from '../src/polyphonic.js'
 
 let pyodideInstance: any = null
+let pyodideBaseUrl = './pyodide/'
+
+/**
+ * Sets the absolute base URL for the vendored Pyodide assets. Required when
+ * running inside a Web Worker, where relative URLs resolve against the worker
+ * chunk's location instead of the document.
+ */
+export function setPyodideBaseUrl(url: string) {
+  pyodideBaseUrl = url
+}
 
 async function initPyodide(logCallback: (msg: string) => void) {
   if (pyodideInstance) return pyodideInstance
 
   logCallback('Initializing Pyodide WASM Runtime...\n')
 
-  if (typeof (window as any).loadPyodide === 'undefined') {
-    logCallback('Loading pyodide.js script locally...\n')
-    const script = document.createElement('script')
-    script.src = './pyodide/pyodide.js'
-    document.head.appendChild(script)
-    await new Promise((resolve, reject) => {
-      script.onload = resolve
-      script.onerror = () => reject(new Error('Failed to load pyodide.js'))
-    })
+  // Works on both the main thread and in Web Workers: prefer an existing
+  // global (also how tests inject their mock), otherwise import the ESM
+  // build of the vendored runtime.
+  let loadPyodideFn = (globalThis as any).loadPyodide
+  if (typeof loadPyodideFn === 'undefined') {
+    logCallback('Loading vendored Pyodide module...\n')
+    const mod = await import(/* @vite-ignore */ `${pyodideBaseUrl}pyodide.mjs`)
+    loadPyodideFn = mod.loadPyodide
   }
 
-  const pyodide = await (window as any).loadPyodide({
-    indexURL: './pyodide/',
+  const pyodide = await loadPyodideFn({
+    indexURL: pyodideBaseUrl,
   })
 
   logCallback('Loading vendored Python wheels (fonttools, brotli)...\n')
   await pyodide.loadPackage([
-    './pyodide/fonttools-4.51.0-py3-none-any.whl',
-    './pyodide/Brotli-1.1.0-cp312-cp312-pyodide_2024_0_wasm32.whl',
+    `${pyodideBaseUrl}fonttools-4.51.0-py3-none-any.whl`,
+    `${pyodideBaseUrl}Brotli-1.1.0-cp312-cp312-pyodide_2024_0_wasm32.whl`,
   ])
 
   logCallback('Pyodide ready with Python dependencies.\n')
@@ -50,67 +57,13 @@ export async function compileFontInBrowser(
   enablePolyphonic: boolean,
   logCallback: (msg: string) => void,
 ): Promise<CompileResult> {
-  logCallback(`Generating SVG glyph paths for ${data.length} entries...\n`)
-  const characterWidth = config.canvas.width
-  const scaleY = -12.5 // scale y canvas height 80 -> -1000/80 = -12.5
-  const scaleX = 12.5 // uniform scaling to preserve aspect ratio
-
-  let glyphsXml = ''
-
-  for (const char of data) {
-    try {
-      const baseSvg = ruby.getBase(
-        baseFontEngine,
-        char.glyph,
-        config.layout.base,
-      )
-      const baseD = ruby.getData(baseSvg)
-      const baseScaled = svgpath(baseD)
-        .scale(scaleX, scaleY)
-        .translate(0, 800)
-        .toString()
-
-      const annoSvg = ruby.getAnnotation(
-        annotationFontEngine,
-        char.ruby,
-        config.layout.annotation,
-      )
-      const dMatches = [...annoSvg.matchAll(/d="([^"]*)"/g)].map((m) => m[1])
-
-      let combinedPath = baseScaled
-      for (const d of dMatches) {
-        const annoScaled = svgpath(d)
-          .scale(scaleX, scaleY)
-          .translate(0, 800)
-          .toString()
-        combinedPath += ' ' + annoScaled
-      }
-
-      const unicodeHex = char.codepoint.replace('U+', '').toLowerCase()
-      const glyphWidth = characterWidth * 12.5
-      glyphsXml += `\n  <glyph unicode="&#x${unicodeHex};" glyph-name="u${unicodeHex}" horiz-adv-x="${glyphWidth}" d="${combinedPath}" />`
-    } catch (e: any) {
-      logCallback(
-        `Warning: failed generating glyph for ${char.glyph} (${char.ruby}): ${e.message}\n`,
-      )
-    }
-  }
-
-  logCallback('Assembling SVG Font XML...\n')
-  const svgFontString = `<?xml version="1.0" standalone="no"?>
-<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd" >
-<svg xmlns="http://www.w3.org/2000/svg">
-<defs>
-<font id="${config.fontName}" horiz-adv-x="1000">
-  <font-face font-family="${config.fontName}" units-per-em="1000" ascent="800" descent="-200" />
-  <missing-glyph horiz-adv-x="500" />${glyphsXml}
-</font>
-</defs>
-</svg>`
-
-  logCallback('Converting SVG Font to TTF...\n')
-  const ttfResult = svg2ttf(svgFontString, {})
-  let ttfBytes = new Uint8Array(ttfResult.buffer)
+  let ttfBytes = compileTtf(
+    data,
+    config,
+    baseFontEngine,
+    annotationFontEngine,
+    logCallback,
+  )
 
   let woff2Bytes = new Uint8Array()
 

@@ -70,16 +70,19 @@ test('writeFont()', async () => {
   fs.unlinkSync(destination)
 })
 
-test('generateFontFiles()', async () => {
+test('generateFontFiles(): writes requested formats next to destFilename', async () => {
   const content = { ttf: 'font-data' }
   const config = {
-    formats: ['ttf'],
+    formats: ['ttf', 'woff2'], // woff2 not in content — must be skipped
     fontName: 'RFC-config-font-name',
-    destFilename: '.whatever',
+    destFilename: './build/RFC-config-font-name',
   }
 
   await helpers.generateFontFiles(content, config)
   const directoryPath = path.resolve('./build')
   expect(fs.existsSync(`${directoryPath}/RFC-config-font-name.ttf`)).toBe(true)
+  expect(fs.existsSync(`${directoryPath}/RFC-config-font-name.woff2`)).toBe(
+    false,
+  )
   fs.unlinkSync(`${directoryPath}/RFC-config-font-name.ttf`)
 })

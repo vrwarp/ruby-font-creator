@@ -2,7 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
     <meta name="theme-color" content="#0f172a" />
     <title>Pinyin Typography Lab — Font Design Companion</title>
     <link rel="manifest" href="./manifest.json" />
@@ -64,8 +67,24 @@
 
     <!-- Main Grid -->
     <main class="app-main">
-      <!-- Sidebar: Controls -->
+      <!-- Sidebar: Controls (bottom sheet on mobile) -->
       <section class="control-panel scrollable-panel">
+        <!-- Sheet chrome, visible only on narrow screens -->
+        <div class="sheet-header">
+          <div class="sheet-grabber" aria-hidden="true"></div>
+          <div class="sheet-header-row">
+            <span class="sheet-title">
+              <i class="fa-solid fa-sliders"></i> Typography Controls
+            </span>
+            <button
+              id="btn-sheet-close"
+              class="sheet-close-btn"
+              aria-label="Close controls"
+            >
+              <i class="fa-solid fa-xmark"></i>
+            </button>
+          </div>
+        </div>
         <!-- Section 1: Layout & Alignment -->
         <div class="panel-section">
           <h2 class="section-title">
@@ -893,6 +912,18 @@
         <i class="fa-solid fa-xmark"></i>
       </button>
     </div>
+
+    <!-- Mobile-only: opens the controls bottom sheet -->
+    <div id="controls-backdrop" class="controls-backdrop"></div>
+    <button
+      id="btn-controls-toggle"
+      class="controls-fab"
+      aria-expanded="false"
+      aria-label="Adjust typography controls"
+    >
+      <i class="fa-solid fa-sliders"></i>
+      <span>Controls</span>
+    </button>
 
     <script type="module" src="./main.ts"></script>
   </body>

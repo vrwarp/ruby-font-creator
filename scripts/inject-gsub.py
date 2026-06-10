@@ -171,6 +171,19 @@ def main() -> None:
     font.save(output_path)
     print(f"wrote: {output_path} (with GSUB calt)")
 
+    # Also emit the final WOFF2 so the compressed format carries the GSUB
+    # rules too (the pre-GSUB woff2 from the font build lacks them).
+    woff2_path = os.path.splitext(output_path)[0] + ".woff2"
+    try:
+        font.flavor = "woff2"
+        font.save(woff2_path)
+        print(f"wrote: {woff2_path} (with GSUB calt)")
+    except Exception as exc:
+        print(
+            f"Warning: WOFF2 not written ({exc}). Run: pip3 install brotli",
+            file=sys.stderr,
+        )
+
 
 if __name__ == "__main__":
     main()

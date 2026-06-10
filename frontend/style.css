@@ -178,18 +178,113 @@ body {
   display: grid;
   grid-template-columns: 400px 1fr;
   height: calc(100vh - 73px);
+  height: calc(100dvh - 73px);
   overflow: hidden;
 }
 
+/* Sheet chrome (grabber + close) only exists on narrow screens */
+.sheet-header {
+  display: none;
+}
+
+/*
+ * Narrow screens: the simulators take the full width and the control panel
+ * becomes a bottom sheet, opened from the floating "Controls" button. This
+ * replaces the old behaviour of stacking every control section above the
+ * content, which buried the previews under a full screen of sliders.
+ */
 @media (max-width: 1024px) {
   .app-main {
-    grid-template-columns: 1fr;
+    display: block;
     height: auto;
     overflow: visible;
   }
-  .scrollable-panel {
-    max-height: none !important;
-    overflow: visible !important;
+
+  .simulation-area.scrollable-panel {
+    max-height: none;
+    overflow: visible;
+  }
+
+  .control-panel {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 300;
+    max-height: 85vh;
+    max-height: 85dvh;
+    border-right: none;
+    border-top: 1px solid var(--border-color);
+    border-radius: 1.25rem 1.25rem 0 0;
+    box-shadow: 0 -20px 50px rgba(0, 0, 0, 0.5);
+    transform: translateY(105%);
+    transition:
+      transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+      visibility 0.3s;
+    padding-top: 0;
+    padding-bottom: calc(1.5rem + env(safe-area-inset-bottom));
+    visibility: hidden;
+  }
+
+  .control-panel.open {
+    transform: translateY(0);
+    visibility: visible;
+  }
+
+  /* Keep the page beneath the sheet from scrolling while it is open */
+  body.sheet-open {
+    overflow: hidden;
+  }
+
+  .sheet-header {
+    display: block;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    margin: 0 -1.5rem 0.25rem;
+    padding: 0.5rem 1.25rem 0.65rem;
+    background-color: var(--bg-sidebar);
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .sheet-grabber {
+    width: 2.5rem;
+    height: 0.3rem;
+    border-radius: 999px;
+    background-color: var(--border-color);
+    margin: 0 auto 0.5rem;
+  }
+
+  .sheet-header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .sheet-title {
+    font-family: var(--font-title);
+    font-size: 0.8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .sheet-close-btn {
+    width: 2.25rem;
+    height: 2.25rem;
+    border-radius: 50%;
+    border: 1px solid var(--border-color);
+    background-color: var(--bg-app);
+    color: var(--text-secondary);
+    font-size: 1rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 }
 
@@ -1157,7 +1252,7 @@ body {
   border-radius: 0.5rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  shrink: 0;
+  flex-shrink: 0;
 }
 
 .badge-success {
@@ -1743,4 +1838,274 @@ body {
   margin: 0 2px;
   display: inline-block;
   line-height: 1.2;
+}
+
+/* ============================================================
+ * Mobile & touch experience
+ * ============================================================ */
+
+/* Floating action button that opens the controls bottom sheet */
+.controls-fab {
+  display: none;
+  position: fixed;
+  right: 1rem;
+  bottom: calc(1rem + env(safe-area-inset-bottom));
+  z-index: 240;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.85rem 1.25rem;
+  border: none;
+  border-radius: 999px;
+  background: linear-gradient(
+    135deg,
+    var(--color-indigo) 0%,
+    var(--color-purple) 100%
+  );
+  color: white;
+  font-family: var(--font-title);
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow:
+    0 10px 25px rgba(99, 102, 241, 0.45),
+    0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+.controls-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 260;
+  background-color: rgba(3, 7, 18, 0.6);
+  backdrop-filter: blur(2px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition-normal);
+}
+
+.controls-backdrop.active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+@media (max-width: 1024px) {
+  .controls-fab {
+    display: inline-flex;
+  }
+
+  /* Tabs become a swipeable strip instead of five crushed columns */
+  .view-tabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    scroll-snap-type: x proximity;
+  }
+  .view-tabs::-webkit-scrollbar {
+    display: none;
+  }
+  .tab-btn {
+    flex: 0 0 auto;
+    scroll-snap-align: start;
+    white-space: nowrap;
+  }
+
+  /* Keyboard hints are meaningless without a keyboard */
+  .nav-instructions {
+    display: none;
+  }
+}
+
+/* Touch ergonomics: comfortable hit targets and no hover dependence */
+@media (pointer: coarse) {
+  button,
+  .btn,
+  .segment-btn,
+  .tab-btn,
+  .preset-btn,
+  select,
+  input,
+  a {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .btn {
+    min-height: 2.5rem;
+  }
+
+  .btn-small {
+    min-height: 2.25rem;
+  }
+
+  .segment-btn {
+    padding: 0.6rem 0.4rem;
+  }
+
+  .tab-btn {
+    padding: 0.7rem 1rem;
+  }
+
+  .range-control input[type='range'] {
+    height: 6px;
+  }
+
+  .range-control input[type='range']::-webkit-slider-thumb {
+    width: 24px;
+    height: 24px;
+  }
+
+  .range-control input[type='range']::-moz-range-thumb {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--color-indigo);
+    border: none;
+  }
+
+  .switch {
+    width: 2.5rem;
+    height: 1.45rem;
+  }
+
+  .switch .slider:before {
+    height: 1.05rem;
+    width: 1.05rem;
+    left: 0.2rem;
+    bottom: 0.2rem;
+  }
+
+  .switch input:checked + .slider:before {
+    transform: translateX(1.05rem);
+  }
+
+  .slide-dot {
+    width: 10px;
+    height: 10px;
+  }
+
+  .slide-dot.active {
+    width: 22px;
+    border-radius: 5px;
+  }
+
+  /* iOS zooms the page when focusing inputs whose font-size is below 16px */
+  .input-field input,
+  .control-group input[type='text'],
+  .select-control,
+  .selector-group select {
+    font-size: 16px;
+  }
+}
+
+/* Slide arrows are hover-revealed on desktop; keep them visible on touch */
+@media (hover: none) {
+  .nav-slide-btn {
+    opacity: 0.65;
+    background-color: rgba(0, 0, 0, 0.45);
+  }
+}
+
+/* Compact phone layout */
+@media (max-width: 640px) {
+  .app-header {
+    padding: 0.65rem 1rem;
+    padding-left: calc(1rem + env(safe-area-inset-left));
+    padding-right: calc(1rem + env(safe-area-inset-right));
+  }
+
+  .app-subtitle {
+    display: none;
+  }
+
+  .logo-badge {
+    width: 2.25rem;
+    height: 2.25rem;
+    font-size: 1rem;
+    border-radius: 0.6rem;
+  }
+
+  .app-title {
+    font-size: 1rem;
+  }
+
+  .scrollable-panel {
+    padding: 0.85rem;
+  }
+
+  .sheet-header {
+    margin: 0 -0.85rem 0.25rem;
+  }
+
+  .card {
+    border-radius: 1rem;
+  }
+
+  .card-header {
+    padding: 1rem;
+  }
+
+  .card-body {
+    padding: 1rem;
+  }
+
+  .viewport-canvas {
+    padding: 2.5rem 1rem 1.25rem;
+    gap: 1rem;
+    border-radius: 0.6rem;
+  }
+
+  .slide-content {
+    gap: 1rem;
+  }
+
+  .slide-footer {
+    font-size: clamp(0.9rem, 3.5vw, 1.8rem);
+  }
+
+  .slide-header {
+    font-size: 0.7rem;
+    top: 1rem;
+  }
+
+  .guide-border {
+    display: none;
+  }
+
+  .extra-controls-grid {
+    padding: 1rem;
+  }
+
+  .textbook-container {
+    padding: 1rem;
+  }
+
+  .textbook-pages {
+    min-width: 0;
+  }
+
+  .vector-preview-box {
+    padding: 1rem;
+  }
+
+  #tester-text-input {
+    padding: 1rem;
+    height: 260px;
+  }
+
+  .overlay-content {
+    padding: 0.75rem;
+    padding-top: calc(0.75rem + env(safe-area-inset-top));
+    padding-bottom: calc(0.75rem + env(safe-area-inset-bottom));
+  }
+
+  .exit-overlay-btn {
+    top: calc(0.75rem + env(safe-area-inset-top));
+    right: calc(0.75rem + env(safe-area-inset-right));
+    width: 2.75rem;
+    height: 2.75rem;
+  }
+
+  /* Leave breathing room above the FAB at the end of the page */
+  .simulation-area {
+    padding-bottom: 5.5rem;
+  }
 }

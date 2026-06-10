@@ -1,76 +1,19 @@
 import { createRequire } from 'node:module'
-const require = createRequire(import.meta.url)
-const cheerio = require('cheerio')
-if (cheerio && !cheerio.default) {
-  cheerio.default = cheerio
-}
-
-import { readFile, writeFile } from 'node:fs/promises'
+import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import path from 'node:path'
-import _svgtofont from 'svgtofont'
-const svgtofont = ((_svgtofont as any).default || _svgtofont) as (
-  options: any,
-) => Promise<void>
 import yargs from 'yargs'
 import { hideBin } from 'yargs/helpers'
 
+import { compileTtf } from './src/compile.js'
 import helpers from './src/helpers.js'
 import {
   getAlternateGlyphEntries,
   buildPolyphonicMap,
 } from './src/polyphonic.js'
 import ruby from './src/ruby.js'
-import svg from './src/svg.js'
-import type { BuildConfig, GlyphEntry, CliArguments } from './src/types.js'
+import type { GlyphEntry, CliArguments } from './src/types.js'
 
-async function generateSvg(
-  data: GlyphEntry[],
-  config: BuildConfig,
-): Promise<void> {
-  const baseEngine = ruby.loadFont(
-    config.baseFontFilepath ?? config.fontFilepath!,
-  )
-  const annotationEngine = ruby.loadFont(
-    config.annotationFontFilepath ?? config.fontFilepath!,
-  )
-
-  for (const char of data) {
-    const svgContent = svg.wrap(
-      ruby.getBase(baseEngine, char.glyph, config.layout.base),
-      ruby.getAnnotation(annotationEngine, char.ruby, config.layout.annotation),
-      config.canvas,
-    )
-
-    const unicode = char.codepoint.replace('U+', 'u').toLowerCase()
-    svg.save(`${config.workingDir}/${unicode}-${char.glyph}.svg`, svgContent)
-  }
-}
-
-async function buildFont(config: BuildConfig): Promise<void> {
-  const distDir = path.dirname(config.destFilename)
-  await svgtofont({
-    src: config.workingDir,
-    dist: distDir,
-    fontName: config.fontName,
-    formats: config.formats,
-    getIconUnicode(name: string) {
-      const match = name.match(/^u([0-9a-fA-F]+)-/)
-      if (match) {
-        const unicodeHex = match[1]
-        const unicodeNum = parseInt(unicodeHex, 16)
-        return [String.fromCodePoint(unicodeNum), unicodeNum]
-      }
-      return undefined as any
-    },
-    svgicons2svgfont: {
-      fontHeight: 1000,
-      normalize: true,
-      fixedWidth: true,
-      centerHorizontally: true,
-    },
-    website: null,
-  })
-}
+const require = createRequire(import.meta.url)
 
 async function start(cliArguments: CliArguments): Promise<void> {
   let config = await helpers.setBuildConfig(cliArguments)
@@ -81,12 +24,43 @@ async function start(cliArguments: CliArguments): Promise<void> {
   const data: GlyphEntry[] = JSON.parse(rawData)
   const allEntries = [...data, ...getAlternateGlyphEntries()]
 
-  await helpers.prepare(config)
-  await generateSvg(allEntries, config)
-  await buildFont(config)
+  const baseEngine = ruby.loadFont(
+    config.baseFontFilepath ?? config.fontFilepath!,
+  )
+  const annotationEngine = ruby.loadFont(
+    config.annotationFontFilepath ?? config.fontFilepath!,
+  )
+
+  // Compile entirely in memory: the previous svgtofont pipeline wrote one
+  // SVG file per glyph and opened them all concurrently, which exhausts
+  // file-descriptor limits at full dataset size (26k+ glyphs).
+  const startedAt = Date.now()
+  const ttf = compileTtf(
+    allEntries,
+    config,
+    baseEngine,
+    annotationEngine,
+    (msg) => process.stdout.write(msg),
+  )
+  console.log(
+    `compiled ${allEntries.length} glyphs to TTF in ${((Date.now() - startedAt) / 1000).toFixed(1)}s (${(ttf.length / 1e6).toFixed(1)} MB)`,
+  )
+
+  const outputs: Record<string, Uint8Array> = {}
+  if (config.formats.includes('ttf')) {
+    outputs.ttf = ttf
+  }
+  if (config.formats.includes('woff2')) {
+    console.log('compressing WOFF2...')
+    const wawoff2 = require('wawoff2')
+    outputs.woff2 = await wawoff2.compress(ttf)
+  }
+
+  const distDir = path.dirname(config.destFilename)
+  await mkdir(distDir, { recursive: true })
+  await helpers.generateFontFiles(outputs, config)
 
   const polyMap = buildPolyphonicMap(data)
-  const distDir = path.dirname(config.destFilename)
   await writeFile(
     path.join(distDir, 'polyphonic-map.json'),
     JSON.stringify(polyMap, null, 2),

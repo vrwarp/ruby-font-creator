@@ -6,9 +6,11 @@ import { finished } from 'node:stream/promises'
 const PYODIDE_VERSION = '0.26.1'
 const BASE_URL = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full`
 
-// List of core Pyodide assets to download
+// List of core Pyodide assets to download. pyodide.mjs is the ESM build,
+// used by the compile Web Worker; pyodide.js is the classic UMD build.
 const PYODIDE_FILES = [
   'pyodide.js',
+  'pyodide.mjs',
   'pyodide.asm.js',
   'pyodide.asm.wasm',
   'pyodide-lock.json',

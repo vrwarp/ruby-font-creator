@@ -44,8 +44,11 @@ export const helpers = {
     content: Record<string, any>,
     config: any,
   ): Promise<void> {
+    const directoryPath = config.destFilename
+      ? path.dirname(path.resolve(config.destFilename))
+      : path.resolve('./build')
     for (const format of config.formats) {
-      const directoryPath = path.resolve(`./build`)
+      if (!(format in content)) continue
       const filePath = `${directoryPath}/${config.fontName}.${format}`
       await this.writeFont(content[format], filePath)
       console.log(`wrote: ${filePath}`)

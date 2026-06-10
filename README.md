@@ -15,12 +15,12 @@ The project features:
 
 The web application hosts the entire compiler stack directly in the browser:
 
+- **Web Worker Execution**: All compilation runs in a dedicated Web Worker (`frontend/compile-worker.ts`), so even a full 26k-glyph build never freezes the UI. The worker caches the parsed base fonts and character dataset across builds, making repeated live-tester rebuilds nearly instant.
 - **Vector Path Extraction**: Uses `opentype.js` to parse the base `DroidSansFallbackFull.ttf` font and extract vector paths in the browser.
 - **Glyph Layout Composition**: Shared logic in `src/ruby.ts` positions Hanzi and Pinyin paths, scaling and offsetting them based on layout configurations.
-- **SVG Font XML Builder**: Packages vector glyphs into SVG Font format in memory.
-- **SVG-to-TTF Conversion**: Uses `svg2ttf` to compile the SVG Font string into a TTF binary array.
+- **In-Memory SVG-Font → TTF Compilation**: Shared pipeline in `src/compile.ts` (used by both the browser worker and the Node CLI) packages vector glyphs into SVG Font XML in memory and compiles it to a TTF binary with `svg2ttf`.
 - **OpenType Feature Injection via WebAssembly (Pyodide)**:
-  - Bootstraps Mozilla's **Pyodide WASM** runtime inside the browser.
+  - Bootstraps Mozilla's **Pyodide WASM** runtime inside the worker.
   - Loads vendored Python wheels for `fonttools` and `brotli`.
   - Runs a Python script inside WebAssembly to parse the compiled TTF, inject a Contextual Alternates (`calt`) GSUB lookup table for polyphonic rules, and export both TTF and compressed WOFF2 font formats.
 
@@ -97,11 +97,13 @@ npm run build:web
 The command-line build is a two-step process:
 
 1. **Compile Vector Glyphs and Build Fonts**:
-   Reads character mappings from a JSON dataset to compile base-and-annotation SVG pairs and outputs the `.ttf` and `.woff2` files:
+   Reads character mappings from a JSON dataset, composes base-and-annotation vectors entirely in memory (the same `src/compile.ts` pipeline the web app uses — no intermediate SVG files or file-descriptor pressure at full dataset size), and outputs the `.ttf` and `.woff2` files into `build/`:
 
    ```bash
    npm run build:font
    ```
+
+   The full 26.7k-glyph dataset compiles in roughly a minute and peaks around 4 GB of heap (the npm script already raises Node's memory ceiling accordingly).
 
    _Optional CLI Arguments:_
    - `--config <path>`: Path to configuration module (defaults to `./src/config/default.ts`).
@@ -109,7 +111,7 @@ The command-line build is a two-step process:
    - `--font-name <name>`: Custom name for the generated font family.
 
 2. **Inject GSUB Table**:
-   Post-processes the compiled TTF font to inject contextual alternates based on the registered polyphonic rules in `src/polyphonic.ts`:
+   Post-processes the compiled TTF font to inject contextual alternates based on the registered polyphonic rules in `src/polyphonic.ts`, and re-emits the final `.woff2` so the compressed format carries the GSUB rules too (requires `pip3 install fonttools brotli`):
    ```bash
    npm run build:gsub
    ```
@@ -146,6 +148,7 @@ This project incorporates and uses several open-source libraries and fonts. Thei
 | **brotli**              | Google / Brotli Contributors         | [MIT License](https://github.com/google/brotli/blob/master/LICENSE)          | WOFF2 font compression                               |
 | **opentype.js**         | Frederik De Bleser / opentype.js     | [MIT License](https://github.com/opentypejs/opentype.js/blob/master/LICENSE) | Base font vector path parsing and preview generation |
 | **svg2ttf**             | Vitaly Puzrin / svg2ttf              | [MIT License](https://github.com/fontello/svg2ttf/blob/master/LICENSE)       | Compiling SVG Font XML to TTF binary                 |
+| **wawoff2**             | Fontello / wawoff2                   | [MIT License](https://github.com/fontello/wawoff2/blob/master/LICENSE)       | WOFF2 compression in the Node CLI builder            |
 | **svgpath**             | Vitaly Puzrin / svgpath              | [MIT License](https://github.com/fontello/svgpath/blob/master/LICENSE)       | SVG path scaling, translation, and parsing           |
 | **text-to-svg**         | shrhdk / text-to-svg                 | [MIT License](https://github.com/shrhdk/text-to-svg/blob/master/LICENSE)     | SVG rendering in Node CLI font builder               |
 | **jsdom**               | jsdom Contributors                   | [MIT License](https://github.com/jsdom/jsdom/blob/master/LICENSE)            | DOM parsing mock during Node-based testing           |

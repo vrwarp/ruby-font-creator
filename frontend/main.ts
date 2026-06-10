@@ -2,10 +2,7 @@
 import TextToSVG from 'text-to-svg'
 import opentype from 'opentype.js'
 import ruby from '../src/ruby.js'
-import {
-  getAlternateGlyphEntries,
-  POLYPHONIC_ENTRIES,
-} from '../src/polyphonic.js'
+import type { WorkerFontSource } from './compile-client.js'
 
 // Interface declarations
 interface SyllablePreset {
@@ -1060,6 +1057,7 @@ function setupPinyinFontEvents() {
         if (annotationFontEngines[name]) {
           delete annotationFontEngines[name]
         }
+        previewCache.clear()
         if (state.pinyinFont === name) {
           state.pinyinFont = 'droid-sans'
           elements.pinyinFontSelect.value = 'droid-sans'
@@ -1093,8 +1091,8 @@ function setupPinyinFontEvents() {
       }
 
       showPinyinStatus('Patching missing characters in browser...', true)
-      const { patchFontInBrowser } = await import('./compiler.js')
-      const patchedBytes = await patchFontInBrowser(
+      const { patchFontInWorker } = await import('./compile-client.js')
+      const patchedBytes = await patchFontInWorker(
         fontEntry.ttf,
         missing,
         (msg) => {
@@ -1115,6 +1113,7 @@ function setupPinyinFontEvents() {
       if (annotationFontEngines[fontKey]) {
         delete annotationFontEngines[fontKey]
       }
+      previewCache.clear()
 
       showPinyinStatus('Font successfully patched!', false)
       setTimeout(() => showPinyinStatus('', false), 3000)
@@ -1130,11 +1129,77 @@ function setupPinyinFontEvents() {
   })
 }
 
+// On narrow screens the control panel becomes a bottom sheet, opened from a
+// floating action button so the simulators stay front and centre.
+function setupMobileControls() {
+  const fab = document.getElementById('btn-controls-toggle')
+  const backdrop = document.getElementById('controls-backdrop')
+  const closeBtn = document.getElementById('btn-sheet-close')
+  const panel = document.querySelector('.control-panel')
+  if (!fab || !backdrop || !panel) return
+
+  const setOpen = (open: boolean) => {
+    panel.classList.toggle('open', open)
+    backdrop.classList.toggle('active', open)
+    document.body.classList.toggle('sheet-open', open)
+    fab.setAttribute('aria-expanded', open ? 'true' : 'false')
+  }
+
+  fab.addEventListener('click', () =>
+    setOpen(!panel.classList.contains('open')),
+  )
+  backdrop.addEventListener('click', () => setOpen(false))
+  closeBtn?.addEventListener('click', () => setOpen(false))
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && panel.classList.contains('open')) {
+      setOpen(false)
+    }
+  })
+}
+
+// Touch devices get swipe left/right on the worship viewport (and the
+// fullscreen presentation) for slide navigation — the hover-only arrow
+// buttons are unreachable without a pointer.
+function setupSwipeNavigation() {
+  let touchStartX: number | null = null
+  let touchStartY: number | null = null
+
+  const onTouchStart = (e: TouchEvent) => {
+    touchStartX = e.touches[0].clientX
+    touchStartY = e.touches[0].clientY
+  }
+  const onTouchEnd = (e: TouchEvent) => {
+    if (touchStartX === null || touchStartY === null) return
+    const deltaX = e.changedTouches[0].clientX - touchStartX
+    const deltaY = e.changedTouches[0].clientY - touchStartY
+    touchStartX = null
+    touchStartY = null
+    // Require a mostly-horizontal swipe so vertical scrolling is unaffected
+    if (Math.abs(deltaX) < 48 || Math.abs(deltaX) < Math.abs(deltaY) * 1.5) {
+      return
+    }
+    if (state.activeTab !== 'worship') return
+    state.worshipSlideIndex =
+      deltaX < 0
+        ? (state.worshipSlideIndex + 1) % presetsWorship.length
+        : (state.worshipSlideIndex - 1 + presetsWorship.length) %
+          presetsWorship.length
+    updateUI()
+  }
+
+  for (const el of [elements.worshipViewport, elements.presentationContent]) {
+    el.addEventListener('touchstart', onTouchStart, { passive: true })
+    el.addEventListener('touchend', onTouchEnd, { passive: true })
+  }
+}
+
 function init() {
   setupTheme()
   setupPresets()
   setupEventListeners()
   setupPinyinFontEvents()
+  setupMobileControls()
+  setupSwipeNavigation()
   loadLocalFont()
   loadStateFromUrl()
   syncUIFromState()
@@ -1603,6 +1668,27 @@ async function getAnnotationFontEngine(fontKey: string): Promise<any> {
   }
 }
 
+// Rendered preview SVGs keyed by glyph + the layout settings that shaped
+// them, so slide navigation and slider drags don't re-vectorize unchanged
+// characters (~1 ms each adds up across slides and poems).
+const previewCache = new Map<string, string>()
+const PREVIEW_CACHE_LIMIT = 4000
+
+function previewSettingsKey(): string {
+  return [
+    state.placement,
+    state.characterWidth,
+    state.verticalOffset,
+    state.opticalSqueeze,
+    state.fontWeight,
+    state.letterTracking,
+    state.pinyinSize,
+    state.hanziSize,
+    state.strategy,
+    state.pinyinFont,
+  ].join('|')
+}
+
 // Helper to render vector preview SVGs locally in-browser
 async function getPreviews(
   glyphs: { glyph: string; ruby: string }[],
@@ -1610,7 +1696,14 @@ async function getPreviews(
   try {
     const baseEngine = await getLocalFontEngine()
     const annoEngine = await getAnnotationFontEngine(state.pinyinFont)
+    const settingsKey = previewSettingsKey()
     return glyphs.map((char) => {
+      const cacheKey = `${settingsKey}|${char.glyph}|${char.ruby}`
+      const cached = previewCache.get(cacheKey)
+      if (cached) {
+        return { glyph: char.glyph, ruby: char.ruby, svg: cached }
+      }
+
       const isPlacementTop = state.placement === 'top'
       const characterWidth = state.characterWidth || 80
       const centerVal = characterWidth / 2
@@ -1655,6 +1748,11 @@ async function getPreviews(
         ${baseSvgPath}
         ${pinyinPaths}
       </svg>`
+
+      if (previewCache.size >= PREVIEW_CACHE_LIMIT) {
+        previewCache.clear()
+      }
+      previewCache.set(cacheKey, svgContent)
 
       return {
         glyph: char.glyph,
@@ -2017,8 +2115,6 @@ const config: BuildConfig = {
   }
   fontName: 'ruby-font-creator',
   formats: ['ttf', 'woff2'],
-  inputFiles: './build/**/*.svg',
-  workingDir: path.resolve(projectRoot, '../../build/svg'),
   get layout() {
     return {
       base: {
@@ -2100,7 +2196,82 @@ function exitPresentation() {
   elements.presentationOverlay.classList.remove('active')
 }
 
-// Trigger browser-side font compiler task
+// Builds the compile configuration shared by the full and live builds
+function buildCompileConfig(fontName: string) {
+  const calculatedPinyinFontSize = Math.round(
+    56 * (state.pinyinSize / state.hanziSize),
+  )
+  return {
+    canvas: { width: state.characterWidth, height: 80 },
+    fontName,
+    layout: {
+      base: {
+        x: state.characterWidth / 2,
+        y: state.placement === 'top' ? 92 : -4,
+        fontSize: 56,
+        anchor: state.placement === 'top' ? 'bottom center' : 'top center',
+      },
+      annotation: {
+        x: state.characterWidth / 2,
+        y:
+          state.placement === 'top'
+            ? -4 - state.verticalOffset
+            : 92 + state.verticalOffset,
+        fontSize: calculatedPinyinFontSize,
+        anchor: state.placement === 'top' ? 'top center' : 'bottom center',
+        squeeze: state.opticalSqueeze,
+        tracking: state.letterTracking,
+        weight: state.fontWeight,
+        strategy: state.strategy,
+      },
+    },
+  } as any
+}
+
+function getBaseFontSource(): WorkerFontSource {
+  return {
+    key: 'base-droid-sans',
+    url: new URL(
+      './resources/fonts/DroidSansFallbackFull.ttf',
+      document.baseURI,
+    ).href,
+  }
+}
+
+// Resolves the active annotation font into something the compile worker can
+// load itself: a URL for system fonts, raw bytes for custom IndexedDB fonts
+// (keyed by name + timestamp so re-patched fonts bust the worker's cache).
+async function getAnnotationFontSource(
+  fontKey: string,
+): Promise<WorkerFontSource> {
+  const systemFontKeys = ['droid-sans', 'pt-sans-regular', 'pt-sans-bold']
+  if (systemFontKeys.includes(fontKey)) {
+    let filename = 'DroidSansFallbackFull.ttf'
+    if (fontKey === 'pt-sans-regular') {
+      filename = 'PT_Sans-Narrow-Web-Regular.ttf'
+    } else if (fontKey === 'pt-sans-bold') {
+      filename = 'PT_Sans-Narrow-Web-Bold.ttf'
+    }
+    return {
+      key: fontKey,
+      url: new URL(`./resources/fonts/${filename}`, document.baseURI).href,
+    }
+  }
+
+  const { getPinyinFont } = await import('./db.js')
+  const fontEntry = await getPinyinFont(fontKey)
+  if (!fontEntry) {
+    throw new Error(`Pinyin font not found in DB: ${fontKey}`)
+  }
+  const bytes = fontEntry.ttf.buffer.slice(
+    fontEntry.ttf.byteOffset,
+    fontEntry.ttf.byteOffset + fontEntry.ttf.byteLength,
+  ) as ArrayBuffer
+  return { key: `${fontEntry.name}@${fontEntry.timestamp}`, bytes }
+}
+
+// Trigger the font compiler, which runs in a Web Worker so the multi-minute
+// full-dataset build never blocks the UI thread.
 async function triggerFontBuild() {
   const fontName = elements.inputFontName.value.trim() || 'ruby-font'
   const sanitizedFontName = fontName.replace(/[^a-zA-Z0-9-_]/g, '')
@@ -2114,55 +2285,17 @@ async function triggerFontBuild() {
   elements.btnBuildFont.setAttribute('disabled', 'true')
 
   try {
-    const baseFontEngine = await getLocalFontEngine()
-    const annotationFontEngine = await getAnnotationFontEngine(state.pinyinFont)
-
-    // Load base data
-    const dataResponse = await fetch('./data.json')
-    if (!dataResponse.ok) throw new Error('Failed to fetch data.json')
-    const allData = await dataResponse.json()
-
-    const { compileFontInBrowser } = await import('./compiler.js')
+    const { compileFontInWorker } = await import('./compile-client.js')
     const { saveFont } = await import('./db.js')
 
-    const allEntries = [...allData, ...getAlternateGlyphEntries()]
-
-    // Build configuration object
-    const calculatedPinyinFontSize = Math.round(
-      56 * (state.pinyinSize / state.hanziSize),
-    )
-    const config = {
-      canvas: { width: state.characterWidth, height: 80 },
-      fontName: sanitizedFontName,
-      layout: {
-        base: {
-          x: state.characterWidth / 2,
-          y: state.placement === 'top' ? 92 : -4,
-          fontSize: 56,
-          anchor: state.placement === 'top' ? 'bottom center' : 'top center',
-        },
-        annotation: {
-          x: state.characterWidth / 2,
-          y:
-            state.placement === 'top'
-              ? -4 - state.verticalOffset
-              : 92 + state.verticalOffset,
-          fontSize: calculatedPinyinFontSize,
-          anchor: state.placement === 'top' ? 'top center' : 'bottom center',
-          squeeze: state.opticalSqueeze,
-          tracking: state.letterTracking,
-          weight: state.fontWeight,
-          strategy: state.strategy,
-        },
+    const result = await compileFontInWorker(
+      {
+        mode: 'full',
+        config: buildCompileConfig(sanitizedFontName),
+        enablePolyphonic: state.enablePolyphonic,
+        baseFont: getBaseFontSource(),
+        annotationFont: await getAnnotationFontSource(state.pinyinFont),
       },
-    } as any
-
-    const result = await compileFontInBrowser(
-      allEntries,
-      config,
-      baseFontEngine,
-      annotationFontEngine,
-      state.enablePolyphonic,
       (msg) => {
         elements.buildLogs.textContent += msg
         elements.buildLogs.scrollTop = elements.buildLogs.scrollHeight
@@ -2227,72 +2360,20 @@ async function triggerLiveFontBuild() {
   elements.testerFontStatus.textContent = 'Building Live...'
 
   try {
-    const baseFontEngine = await getLocalFontEngine()
-    const annotationFontEngine = await getAnnotationFontEngine(state.pinyinFont)
-    const text = state.testerText || ' '
-    const uniqueChars = new Set(text.split(''))
+    // The worker subsets the dataset to the tester text itself, and keeps
+    // the parsed fonts and data.json cached across rebuilds.
+    const { compileFontInWorker } = await import('./compile-client.js')
+    const result = await compileFontInWorker({
+      mode: 'subset',
+      text: state.testerText || ' ',
+      config: buildCompileConfig('live'),
+      enablePolyphonic: state.enablePolyphonic,
+      baseFont: getBaseFontSource(),
+      annotationFont: await getAnnotationFontSource(state.pinyinFont),
+    })
 
-    // Load base data
-    const dataResponse = await fetch('./data.json')
-    if (!dataResponse.ok) throw new Error('Failed to fetch data.json')
-    const allData = await dataResponse.json()
-
-    // Filter data matching user input
-    const filteredData = allData.filter((entry: any) =>
-      uniqueChars.has(entry.glyph),
-    )
-
-    if (state.enablePolyphonic) {
-      const alternates = getAlternateGlyphEntries()
-      const polyGlyphs = new Set(POLYPHONIC_ENTRIES.map((p) => p.glyph))
-      const activePolyGlyphs = [...uniqueChars].filter((c) => polyGlyphs.has(c))
-      const activeAlternates = alternates.filter((alt) => {
-        const parentEntry = POLYPHONIC_ENTRIES.find((p) =>
-          p.alternates.some((a) => a.codepoint === alt.codepoint),
-        )
-        return parentEntry && activePolyGlyphs.includes(parentEntry.glyph)
-      })
-      filteredData.push(...activeAlternates)
-    }
-
-    const { compileFontInBrowser } = await import('./compiler.js')
-    const calculatedPinyinFontSize = Math.round(
-      56 * (state.pinyinSize / state.hanziSize),
-    )
-    const config = {
-      canvas: { width: state.characterWidth, height: 80 },
-      fontName: 'live',
-      layout: {
-        base: {
-          x: state.characterWidth / 2,
-          y: state.placement === 'top' ? 92 : -4,
-          fontSize: 56,
-          anchor: state.placement === 'top' ? 'bottom center' : 'top center',
-        },
-        annotation: {
-          x: state.characterWidth / 2,
-          y:
-            state.placement === 'top'
-              ? -4 - state.verticalOffset
-              : 92 + state.verticalOffset,
-          fontSize: calculatedPinyinFontSize,
-          anchor: state.placement === 'top' ? 'top center' : 'bottom center',
-          squeeze: state.opticalSqueeze,
-          tracking: state.letterTracking,
-          weight: state.fontWeight,
-          strategy: state.strategy,
-        },
-      },
-    } as any
-
-    const result = await compileFontInBrowser(
-      filteredData,
-      config,
-      baseFontEngine,
-      annotationFontEngine,
-      state.enablePolyphonic,
-      () => {}, // silence logging for live build
-    )
+    // The user may have switched fonts while the build ran
+    if (elements.testerFontSelect.value !== 'live') return
 
     await loadGeneratedFont('live', result.ttf, result.woff2)
   } catch (err: any) {

@@ -54,8 +54,6 @@ export interface BuildConfig {
   fontFilepath?: string
   fontName: string
   formats: string[]
-  inputFiles: string
-  workingDir: string
   layout: {
     base: LayoutAttributes
     annotation: LayoutAttributes

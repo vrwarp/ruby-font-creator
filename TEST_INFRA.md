@@ -119,6 +119,10 @@ In addition to the mock-boundary suites above, two suites exercise the
 production frontend modules directly (only the browser/Pyodide boundary is
 mocked):
 
+- `test/compile.test.ts` — exercises the shared `src/compile.ts` pipeline
+  (used by both the Node CLI and the browser worker) and validates the
+  resulting TTF binaries with `opentype.js`: cmap coverage, configured
+  advance widths, real outlines, and graceful per-glyph failure handling.
 - `test/e2e/browser-compiler.test.ts` — runs the real `frontend/compiler.ts`
   (`compileFontInBrowser`, `patchFontInBrowser`) with the real layout engine
   and `svg2ttf`, then parses the resulting TTF with `opentype.js` to verify

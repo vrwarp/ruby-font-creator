@@ -6,7 +6,7 @@
 - **Service Worker (`sw.js`)**: Caches all assets including `DroidSansFallbackFull.ttf`, Pyodide assets, and Python wheels to support 100% offline usage.
 - **IndexedDB**: Persistent database storing compiled font blobs (TTF and WOFF2) and user settings.
 - **Browser Font Engine**: Uses `opentype.js` to parse the base TTF and generate SVG paths for preview rendering using browser-compatible `ruby.ts`.
-- **Browser Font Compiler**: Constructs SVG Font XML from glyph vectors in memory, converts SVG Font XML to TTF using `svg2ttf`, and registers via CSS Font Loading API.
+- **Browser Font Compiler**: A dedicated Web Worker (`frontend/compile-worker.ts`) constructs SVG Font XML from glyph vectors in memory via the shared `src/compile.ts` pipeline, converts it to TTF using `svg2ttf`, and hands the result back to the main thread for registration via the CSS Font Loading API. The worker caches parsed fonts and the character dataset across builds.
 - **Pyodide OpenType Feature Injector**: Pyodide runs Python in the browser, loads local wheels (`fonttools`, `brotli`), and executes a script equivalent to `scripts/inject-gsub.py` to inject GSUB alternate lookup rules and output compressed WOFF2.
 
 ```
@@ -90,10 +90,13 @@
   - `index.html` - PWA entry-point, registers Service Worker
   - `main.ts` - Client-side state manager and interface controller
   - `compiler.ts` - Browser-side font compiler and Pyodide bridge
+  - `compile-worker.ts` - Web Worker hosting the compiler off the main thread
+  - `compile-client.ts` - Main-thread RPC client for the compile worker
   - `db.ts` - IndexedDB persistence layer
   - `public/sw.js` - Service worker handling caching for offline capability
   - `public/manifest.json` - PWA web manifest
   - `public/pyodide/` - Vendored Pyodide runtime and Python wheels
 - `src/`
   - `ruby.ts` - Shared/browser-side layout computations
+  - `compile.ts` - Shared in-memory SVG-font → TTF pipeline (CLI + browser)
   - `polyphonic.ts` - Font alternate mappings (simplified & traditional)

@@ -16,8 +16,6 @@ const config: BuildConfig = {
   ),
   fontName: 'ruby-font-creator',
   formats: ['ttf', 'woff2'],
-  inputFiles: './build/**/*.svg',
-  workingDir: path.resolve(projectRoot, '../../build/svg'),
   get layout() {
     return {
       base: layout.base.top(this.canvas),
