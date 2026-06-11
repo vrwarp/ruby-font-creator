@@ -1,0 +1,384 @@
+{
+  "tensors": {
+    "in.x": { "offset": 0, "shape": [2, 3, 256, 256], "dtype": "f32" },
+    "in.t": { "offset": 1572864, "shape": [2], "dtype": "f32" },
+    "in.font_emb": { "offset": 1572872, "shape": [2, 768], "dtype": "f32" },
+    "in.content_emb": { "offset": 1579016, "shape": [2, 768], "dtype": "f32" },
+    "in.style_emb": { "offset": 1585160, "shape": [2, 768], "dtype": "f32" },
+    "out.t_emb": { "offset": 1591304, "shape": [2, 768], "dtype": "f32" },
+    "out.x_emb": { "offset": 1597448, "shape": [2, 256, 768], "dtype": "f32" },
+    "out.block0": { "offset": 3170312, "shape": [2, 256, 768], "dtype": "f32" },
+    "out.forward": {
+      "offset": 4743176,
+      "shape": [2, 3, 256, 256],
+      "dtype": "f32"
+    },
+    "in.loss_t": { "offset": 6316040, "shape": [2], "dtype": "f32" },
+    "in.loss_e": {
+      "offset": 6316048,
+      "shape": [2, 3, 256, 256],
+      "dtype": "f32"
+    },
+    "out.loss": { "offset": 7888912, "shape": [1], "dtype": "f32" },
+    "out.loss_lora": { "offset": 7888916, "shape": [1], "dtype": "f32" },
+    "in.lora_A_qkv0": { "offset": 7888920, "shape": [32, 768], "dtype": "f32" },
+    "grad.lora_A_qkv0": {
+      "offset": 7987224,
+      "shape": [32, 768],
+      "dtype": "f32"
+    },
+    "grad.lora_B_qkv0": {
+      "offset": 8085528,
+      "shape": [2304, 32],
+      "dtype": "f32"
+    },
+    "init.blocks.0.attn.qkv.lora_A": {
+      "offset": 8380440,
+      "shape": [32, 768],
+      "dtype": "f32"
+    },
+    "init.blocks.0.attn.proj.lora_A": {
+      "offset": 8478744,
+      "shape": [32, 768],
+      "dtype": "f32"
+    },
+    "init.blocks.0.mlp.w12.lora_A": {
+      "offset": 8577048,
+      "shape": [32, 768],
+      "dtype": "f32"
+    },
+    "init.blocks.0.mlp.w3.lora_A": {
+      "offset": 8675352,
+      "shape": [32, 2048],
+      "dtype": "f32"
+    },
+    "init.blocks.1.attn.qkv.lora_A": {
+      "offset": 8937496,
+      "shape": [32, 768],
+      "dtype": "f32"
+    },
+    "init.blocks.1.attn.proj.lora_A": {
+      "offset": 9035800,
+      "shape": [32, 768],
+      "dtype": "f32"
+    },
+    "init.blocks.1.mlp.w12.lora_A": {
+      "offset": 9134104,
+      "shape": [32, 768],
+      "dtype": "f32"
+    },
+    "init.blocks.1.mlp.w3.lora_A": {
+      "offset": 9232408,
+      "shape": [32, 2048],
+      "dtype": "f32"
+    },
+    "init.blocks.2.attn.qkv.lora_A": {
+      "offset": 9494552,
+      "shape": [32, 768],
+      "dtype": "f32"
+    },
+    "init.blocks.2.attn.proj.lora_A": {
+      "offset": 9592856,
+      "shape": [32, 768],
+      "dtype": "f32"
+    },
+    "init.blocks.2.mlp.w12.lora_A": {
+      "offset": 9691160,
+      "shape": [32, 768],
+      "dtype": "f32"
+    },
+    "init.blocks.2.mlp.w3.lora_A": {
+      "offset": 9789464,
+      "shape": [32, 2048],
+      "dtype": "f32"
+    },
+    "init.blocks.3.attn.qkv.lora_A": {
+      "offset": 10051608,
+      "shape": [32, 768],
+      "dtype": "f32"
+    },
+    "init.blocks.3.attn.proj.lora_A": {
+      "offset": 10149912,
+      "shape": [32, 768],
+      "dtype": "f32"
+    },
+    "init.blocks.3.mlp.w12.lora_A": {
+      "offset": 10248216,
+      "shape": [32, 768],
+      "dtype": "f32"
+    },
+    "init.blocks.3.mlp.w3.lora_A": {
+      "offset": 10346520,
+      "shape": [32, 2048],
+      "dtype": "f32"
+    },
+    "init.blocks.4.attn.qkv.lora_A": {
+      "offset": 10608664,
+      "shape": [32, 768],
+      "dtype": "f32"
+    },
+    "init.blocks.4.attn.proj.lora_A": {
+      "offset": 10706968,
+      "shape": [32, 768],
+      "dtype": "f32"
+    },
+    "init.blocks.4.mlp.w12.lora_A": {
+      "offset": 10805272,
+      "shape": [32, 768],
+      "dtype": "f32"
+    },
+    "init.blocks.4.mlp.w3.lora_A": {
+      "offset": 10903576,
+      "shape": [32, 2048],
+      "dtype": "f32"
+    },
+    "init.blocks.5.attn.qkv.lora_A": {
+      "offset": 11165720,
+      "shape": [32, 768],
+      "dtype": "f32"
+    },
+    "init.blocks.5.attn.proj.lora_A": {
+      "offset": 11264024,
+      "shape": [32, 768],
+      "dtype": "f32"
+    },
+    "init.blocks.5.mlp.w12.lora_A": {
+      "offset": 11362328,
+      "shape": [32, 768],
+      "dtype": "f32"
+    },
+    "init.blocks.5.mlp.w3.lora_A": {
+      "offset": 11460632,
+      "shape": [32, 2048],
+      "dtype": "f32"
+    },
+    "init.blocks.6.attn.qkv.lora_A": {
+      "offset": 11722776,
+      "shape": [32, 768],
+      "dtype": "f32"
+    },
+    "init.blocks.6.attn.proj.lora_A": {
+      "offset": 11821080,
+      "shape": [32, 768],
+      "dtype": "f32"
+    },
+    "init.blocks.6.mlp.w12.lora_A": {
+      "offset": 11919384,
+      "shape": [32, 768],
+      "dtype": "f32"
+    },
+    "init.blocks.6.mlp.w3.lora_A": {
+      "offset": 12017688,
+      "shape": [32, 2048],
+      "dtype": "f32"
+    },
+    "init.blocks.7.attn.qkv.lora_A": {
+      "offset": 12279832,
+      "shape": [32, 768],
+      "dtype": "f32"
+    },
+    "init.blocks.7.attn.proj.lora_A": {
+      "offset": 12378136,
+      "shape": [32, 768],
+      "dtype": "f32"
+    },
+    "init.blocks.7.mlp.w12.lora_A": {
+      "offset": 12476440,
+      "shape": [32, 768],
+      "dtype": "f32"
+    },
+    "init.blocks.7.mlp.w3.lora_A": {
+      "offset": 12574744,
+      "shape": [32, 2048],
+      "dtype": "f32"
+    },
+    "init.blocks.8.attn.qkv.lora_A": {
+      "offset": 12836888,
+      "shape": [32, 768],
+      "dtype": "f32"
+    },
+    "init.blocks.8.attn.proj.lora_A": {
+      "offset": 12935192,
+      "shape": [32, 768],
+      "dtype": "f32"
+    },
+    "init.blocks.8.mlp.w12.lora_A": {
+      "offset": 13033496,
+      "shape": [32, 768],
+      "dtype": "f32"
+    },
+    "init.blocks.8.mlp.w3.lora_A": {
+      "offset": 13131800,
+      "shape": [32, 2048],
+      "dtype": "f32"
+    },
+    "init.blocks.9.attn.qkv.lora_A": {
+      "offset": 13393944,
+      "shape": [32, 768],
+      "dtype": "f32"
+    },
+    "init.blocks.9.attn.proj.lora_A": {
+      "offset": 13492248,
+      "shape": [32, 768],
+      "dtype": "f32"
+    },
+    "init.blocks.9.mlp.w12.lora_A": {
+      "offset": 13590552,
+      "shape": [32, 768],
+      "dtype": "f32"
+    },
+    "init.blocks.9.mlp.w3.lora_A": {
+      "offset": 13688856,
+      "shape": [32, 2048],
+      "dtype": "f32"
+    },
+    "init.blocks.10.attn.qkv.lora_A": {
+      "offset": 13951000,
+      "shape": [32, 768],
+      "dtype": "f32"
+    },
+    "init.blocks.10.attn.proj.lora_A": {
+      "offset": 14049304,
+      "shape": [32, 768],
+      "dtype": "f32"
+    },
+    "init.blocks.10.mlp.w12.lora_A": {
+      "offset": 14147608,
+      "shape": [32, 768],
+      "dtype": "f32"
+    },
+    "init.blocks.10.mlp.w3.lora_A": {
+      "offset": 14245912,
+      "shape": [32, 2048],
+      "dtype": "f32"
+    },
+    "init.blocks.11.attn.qkv.lora_A": {
+      "offset": 14508056,
+      "shape": [32, 768],
+      "dtype": "f32"
+    },
+    "init.blocks.11.attn.proj.lora_A": {
+      "offset": 14606360,
+      "shape": [32, 768],
+      "dtype": "f32"
+    },
+    "init.blocks.11.mlp.w12.lora_A": {
+      "offset": 14704664,
+      "shape": [32, 768],
+      "dtype": "f32"
+    },
+    "init.blocks.11.mlp.w3.lora_A": {
+      "offset": 14802968,
+      "shape": [32, 2048],
+      "dtype": "f32"
+    },
+    "in.sampler_z0": {
+      "offset": 15065112,
+      "shape": [1, 3, 256, 256],
+      "dtype": "f32"
+    },
+    "out.sampler": {
+      "offset": 15851544,
+      "shape": [1, 3, 256, 256],
+      "dtype": "f32"
+    }
+  },
+  "gradNorms": {
+    "blocks.0.attn.qkv.lora_A": 0.0,
+    "blocks.0.attn.qkv.lora_B": 0.08996247500181198,
+    "blocks.0.attn.proj.lora_A": 0.0,
+    "blocks.0.attn.proj.lora_B": 0.06126153841614723,
+    "blocks.0.mlp.w12.lora_A": 0.0,
+    "blocks.0.mlp.w12.lora_B": 0.17396686971187592,
+    "blocks.0.mlp.w3.lora_A": 0.0,
+    "blocks.0.mlp.w3.lora_B": 0.055944617837667465,
+    "blocks.1.attn.qkv.lora_A": 0.0,
+    "blocks.1.attn.qkv.lora_B": 0.029232444241642952,
+    "blocks.1.attn.proj.lora_A": 0.0,
+    "blocks.1.attn.proj.lora_B": 0.02923981100320816,
+    "blocks.1.mlp.w12.lora_A": 0.0,
+    "blocks.1.mlp.w12.lora_B": 0.10441136360168457,
+    "blocks.1.mlp.w3.lora_A": 0.0,
+    "blocks.1.mlp.w3.lora_B": 0.04454847425222397,
+    "blocks.2.attn.qkv.lora_A": 0.0,
+    "blocks.2.attn.qkv.lora_B": 0.018771708011627197,
+    "blocks.2.attn.proj.lora_A": 0.0,
+    "blocks.2.attn.proj.lora_B": 0.015286315232515335,
+    "blocks.2.mlp.w12.lora_A": 0.0,
+    "blocks.2.mlp.w12.lora_B": 0.0995560809969902,
+    "blocks.2.mlp.w3.lora_A": 0.0,
+    "blocks.2.mlp.w3.lora_B": 0.04506826400756836,
+    "blocks.3.attn.qkv.lora_A": 0.0,
+    "blocks.3.attn.qkv.lora_B": 0.017932698130607605,
+    "blocks.3.attn.proj.lora_A": 0.0,
+    "blocks.3.attn.proj.lora_B": 0.024299977347254753,
+    "blocks.3.mlp.w12.lora_A": 0.0,
+    "blocks.3.mlp.w12.lora_B": 0.09259412437677383,
+    "blocks.3.mlp.w3.lora_A": 0.0,
+    "blocks.3.mlp.w3.lora_B": 0.08633433282375336,
+    "blocks.4.attn.qkv.lora_A": 0.0,
+    "blocks.4.attn.qkv.lora_B": 0.012620346620678902,
+    "blocks.4.attn.proj.lora_A": 0.0,
+    "blocks.4.attn.proj.lora_B": 0.018521742895245552,
+    "blocks.4.mlp.w12.lora_A": 0.0,
+    "blocks.4.mlp.w12.lora_B": 0.09861482679843903,
+    "blocks.4.mlp.w3.lora_A": 0.0,
+    "blocks.4.mlp.w3.lora_B": 0.11679071187973022,
+    "blocks.5.attn.qkv.lora_A": 0.0,
+    "blocks.5.attn.qkv.lora_B": 0.00616848561912775,
+    "blocks.5.attn.proj.lora_A": 0.0,
+    "blocks.5.attn.proj.lora_B": 0.0077208466827869415,
+    "blocks.5.mlp.w12.lora_A": 0.0,
+    "blocks.5.mlp.w12.lora_B": 0.0629306435585022,
+    "blocks.5.mlp.w3.lora_A": 0.0,
+    "blocks.5.mlp.w3.lora_B": 0.07375677675008774,
+    "blocks.6.attn.qkv.lora_A": 0.0,
+    "blocks.6.attn.qkv.lora_B": 0.005132222548127174,
+    "blocks.6.attn.proj.lora_A": 0.0,
+    "blocks.6.attn.proj.lora_B": 0.005881859455257654,
+    "blocks.6.mlp.w12.lora_A": 0.0,
+    "blocks.6.mlp.w12.lora_B": 0.03458819538354874,
+    "blocks.6.mlp.w3.lora_A": 0.0,
+    "blocks.6.mlp.w3.lora_B": 0.03556547313928604,
+    "blocks.7.attn.qkv.lora_A": 0.0,
+    "blocks.7.attn.qkv.lora_B": 0.00596616230905056,
+    "blocks.7.attn.proj.lora_A": 0.0,
+    "blocks.7.attn.proj.lora_B": 0.020920507609844208,
+    "blocks.7.mlp.w12.lora_A": 0.0,
+    "blocks.7.mlp.w12.lora_B": 0.03247734531760216,
+    "blocks.7.mlp.w3.lora_A": 0.0,
+    "blocks.7.mlp.w3.lora_B": 0.06435991823673248,
+    "blocks.8.attn.qkv.lora_A": 0.0,
+    "blocks.8.attn.qkv.lora_B": 0.005793359130620956,
+    "blocks.8.attn.proj.lora_A": 0.0,
+    "blocks.8.attn.proj.lora_B": 0.007944694720208645,
+    "blocks.8.mlp.w12.lora_A": 0.0,
+    "blocks.8.mlp.w12.lora_B": 0.028702301904559135,
+    "blocks.8.mlp.w3.lora_A": 0.0,
+    "blocks.8.mlp.w3.lora_B": 0.010389668866991997,
+    "blocks.9.attn.qkv.lora_A": 0.0,
+    "blocks.9.attn.qkv.lora_B": 0.012555954977869987,
+    "blocks.9.attn.proj.lora_A": 0.0,
+    "blocks.9.attn.proj.lora_B": 0.014126796275377274,
+    "blocks.9.mlp.w12.lora_A": 0.0,
+    "blocks.9.mlp.w12.lora_B": 0.013856591656804085,
+    "blocks.9.mlp.w3.lora_A": 0.0,
+    "blocks.9.mlp.w3.lora_B": 0.01104748249053955,
+    "blocks.10.attn.qkv.lora_A": 0.0,
+    "blocks.10.attn.qkv.lora_B": 0.009846788831055164,
+    "blocks.10.attn.proj.lora_A": 0.0,
+    "blocks.10.attn.proj.lora_B": 0.01505342684686184,
+    "blocks.10.mlp.w12.lora_A": 0.0,
+    "blocks.10.mlp.w12.lora_B": 0.011291559785604477,
+    "blocks.10.mlp.w3.lora_A": 0.0,
+    "blocks.10.mlp.w3.lora_B": 0.0104017723351717,
+    "blocks.11.attn.qkv.lora_A": 0.0,
+    "blocks.11.attn.qkv.lora_B": 0.026721762493252754,
+    "blocks.11.attn.proj.lora_A": 0.0,
+    "blocks.11.attn.proj.lora_B": 0.01670513115823269,
+    "blocks.11.mlp.w12.lora_A": 0.0,
+    "blocks.11.mlp.w12.lora_B": 0.010066363029181957,
+    "blocks.11.mlp.w3.lora_A": 0.0,
+    "blocks.11.mlp.w3.lora_B": 0.009331961162388325
+  }
+}

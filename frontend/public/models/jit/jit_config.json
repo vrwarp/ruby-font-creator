@@ -1,0 +1,46 @@
+{
+  "model": "JiT-B/16",
+  "depth": 12,
+  "hiddenSize": 768,
+  "numHeads": 12,
+  "headDim": 64,
+  "patchSize": 16,
+  "inputSize": 256,
+  "numPatches": 256,
+  "bottleneckDim": 128,
+  "inContextLen": 32,
+  "inContextStart": 4,
+  "nFontTokens": 2,
+  "nContentTokens": 15,
+  "nStyleTokens": 15,
+  "mlpHidden": 2048,
+  "numFonts": 1000,
+  "numChars": 20000,
+  "rmsNormEps": 1e-6,
+  "flow": {
+    "pMean": -0.8,
+    "pStd": 0.8,
+    "tEps": 0.05,
+    "noiseScale": 1.0,
+    "labelDropProb": 0.1
+  },
+  "lora": {
+    "r": 32,
+    "alpha": 32,
+    "targets": ["qkv", "proj", "w12", "w3"]
+  },
+  "train": {
+    "lr": 0.0008,
+    "betas": [0.9, 0.95],
+    "weightDecay": 0.0,
+    "warmupEpochs": 1,
+    "minLr": 0.0,
+    "batchSize": 16
+  },
+  "sample": {
+    "method": "ab2",
+    "steps": 20,
+    "cfg": 2.6,
+    "interval": [0.0, 1.0]
+  }
+}

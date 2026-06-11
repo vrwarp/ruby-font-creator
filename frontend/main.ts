@@ -2726,7 +2726,9 @@ async function fetchAndPopulateFonts(selectFontName?: string) {
   }
 }
 
-if ('serviceWorker' in navigator) {
+// In dev the SW's stale-while-revalidate serves outdated vite-transformed
+// modules (each edit needs two reloads to land) — register only in prod.
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
   window.addEventListener('load', () => {
     navigator.serviceWorker
       .register('./sw.js')
@@ -3002,6 +3004,64 @@ let lastBatchPreviewAt = 0
   pickStyleRefs,
   getEngine: (key: string) => getChineseFontEngine(key),
 }
+
+// Experimental in-browser fine-tuning harness (jax-js port of zi2zi-JiT).
+// Spawns the training worker on demand; driven from automated tests and the
+// console while the UI integration matures.
+;(window as any).__jit = (() => {
+  let worker: Worker | null = null
+  let nextId = 1
+  const pending = new Map<
+    number,
+    { resolve: (v: any) => void; reject: (e: Error) => void }
+  >()
+  const progress: any[] = []
+
+  const ensure = () => {
+    if (worker) return worker
+    worker = new Worker(new URL('./jit/jit-worker.ts', import.meta.url), {
+      type: 'module',
+    })
+    worker.onmessage = (e: MessageEvent) => {
+      const { type, id, message, output } = e.data
+      if (type === 'progress') {
+        progress.push(e.data)
+        return
+      }
+      const req = pending.get(id)
+      if (!req) return
+      pending.delete(id)
+      if (type === 'error') req.reject(new Error(message))
+      else req.resolve(output)
+    }
+    return worker
+  }
+  const request = (msg: Record<string, unknown>) =>
+    new Promise((resolve, reject) => {
+      const id = nextId++
+      pending.set(id, { resolve, reject })
+      ensure().postMessage({ ...msg, id })
+    })
+
+  return {
+    progress,
+    init: () =>
+      request({
+        type: 'init',
+        assetBase: new URL('./', document.baseURI).href,
+      }),
+    parity: (goldensBase: string, mode?: string, batch?: number) =>
+      request({ type: 'parity', goldensBase, mode, batch }),
+    prepare: (samples: any[], nullFontIndex: number) =>
+      request({ type: 'prepare', samples, nullFontIndex }),
+    train: (opts: any) => request({ type: 'train', opts }),
+    sample: (args: any) => request({ ...args, type: 'sample' }),
+    dispose: () => {
+      worker?.terminate()
+      worker = null
+    },
+  }
+})()
 
 let variantDataPromise: Promise<VariantData> | null = null
 function loadVariantData(): Promise<VariantData> {
