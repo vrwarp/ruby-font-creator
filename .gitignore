@@ -27,6 +27,9 @@ node_modules
 # pretrained MX-Font checkpoint (91 MB): curl -L -o vendor/mxfont/generator.pth \
 #   https://raw.githubusercontent.com/clovaai/mxfont/main/generator.pth
 vendor/mxfont/generator.pth
+# zi2zi-JiT checkpoint (2.3 GB) + content font, fetched by the style-faithful
+# pipeline (see scripts/style-faithful-fill.py)
+vendor/weights/
 
 dist/
 dist-web/
