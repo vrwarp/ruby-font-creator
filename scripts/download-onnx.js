@@ -13,7 +13,14 @@ import path from 'node:path'
 const modelDir = path.resolve(process.cwd(), 'frontend/public/models')
 
 let ok = true
-for (const model of ['mxfont_encoder.int8.onnx', 'mxfont_decoder.int8.onnx']) {
+for (const model of [
+  // int8 (static QDQ): WASM execution provider
+  'mxfont_encoder.int8.onnx',
+  'mxfont_decoder.int8.onnx',
+  // fp32: WebGPU execution provider
+  'mxfont_encoder.onnx',
+  'mxfont_decoder.onnx',
+]) {
   const p = path.join(modelDir, model)
   if (!fs.existsSync(p) || fs.statSync(p).size < 100_000) {
     console.error(

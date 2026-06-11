@@ -172,22 +172,17 @@ def verify(gen, enc_path, dec_path):
     print("parity OK")
 
 
-def quantize(enc_path, dec_path):
-    import onnx as onnx_lib
-    from onnxruntime.quantization import QuantType, quantize_dynamic
-
-    for p in (enc_path, dec_path):
-        q = p.with_suffix(".int8.onnx")
-        quantize_dynamic(
-            str(p),
-            str(q),
-            weight_type=QuantType.QInt8,
-            extra_options={"DefaultTensorType": onnx_lib.TensorProto.FLOAT},
-        )
-        print(f"wrote {q} ({q.stat().st_size / 1e6:.1f} MB)")
-
-
 if __name__ == "__main__":
     gen, _, _, enc_path, dec_path = export()
     verify(gen, enc_path, dec_path)
-    quantize(enc_path, dec_path)
+    # NOTE: fp16 conversion (onnxconverter-common convert_float_to_float16)
+    # was evaluated for the WebGPU path and REJECTED: outputs collapse to
+    # blank for some style inputs (e.g. calligraphy reference fonts) even
+    # with keep_io_types and the default InstanceNorm block list. If size
+    # matters later, use auto_mixed_precision with style feeds from MANY
+    # fonts as validation data.
+    # int8 quantization (for the WASM path) is a separate step:
+    # scripts/quantize-mxfont-static.py (static QDQ, Conv-only). Dynamic
+    # quantization must NOT be used — it emits ConvInteger nodes that are
+    # 6-8x SLOWER than fp32 on both native ARM64 and browser WASM.
+    print("next: .venv-mxfont/bin/python scripts/quantize-mxfont-static.py")

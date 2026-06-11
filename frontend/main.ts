@@ -15,9 +15,11 @@ import {
 } from '../src/variants.js'
 import {
   Zi2ziClient,
+  Zi2ziPool,
   MODEL_SIZE,
   renderGlyphTensor,
   pickStyleRefs,
+  type StyleFactors,
 } from './zi2zi-client.js'
 
 // Interface declarations
@@ -2980,9 +2982,26 @@ function setupChineseFontEvents() {
 // codepoint to the existing counterpart glyph (exact style, variant shape).
 
 const zi2zi = new Zi2ziClient()
+const zi2ziPool = new Zi2ziPool(zi2zi)
 let zi2ziStyleFontKey: string | null = null
+let zi2ziPoolStyleFontKey: string | null = null
+let lastStyleFactors: StyleFactors | null = null
 let lastGenerated: { char: string; ink: Float32Array } | null = null
 let batchCancelRequested = false
+let lastBatchPreviewAt = 0
+
+// Debug/benchmark hook for automated tests and console experiments.
+;(window as any).__zi2zi = {
+  client: zi2zi,
+  newClient: () => new Zi2ziClient(),
+  ensureReady: (fontKey: string) => ensureZi2ziReady(fontKey),
+  generate: (char: string) => generateGlyphInk(char),
+  trace: (ink: Float32Array, threshold: number, smoothing: number) =>
+    traceGrayscaleImage(ink, MODEL_SIZE, MODEL_SIZE, threshold, smoothing),
+  renderGlyphTensor,
+  pickStyleRefs,
+  getEngine: (key: string) => getChineseFontEngine(key),
+}
 
 let variantDataPromise: Promise<VariantData> | null = null
 function loadVariantData(): Promise<VariantData> {
@@ -3013,8 +3032,8 @@ function setZi2ziStatus(msg: string) {
 }
 
 async function ensureZi2ziReady(styleFontKey: string): Promise<void> {
-  setZi2ziStatus('Loading MX-Font model (~24 MB, cached for offline use)…')
-  await zi2zi.init()
+  setZi2ziStatus('Loading MX-Font model (cached for offline use)…')
+  const ep = await zi2zi.init()
   if (zi2ziStyleFontKey !== styleFontKey) {
     const engine = await getChineseFontEngine(styleFontKey)
     const { chars, tensors } = pickStyleRefs(engine.font, 6)
@@ -3024,10 +3043,25 @@ async function ensureZi2ziReady(styleFontKey: string): Promise<void> {
       )
     }
     setZi2ziStatus(`Encoding style references: ${chars.join(' ')}`)
-    await zi2zi.setStyle(tensors)
+    lastStyleFactors = await zi2zi.setStyle(tensors)
     zi2ziStyleFontKey = styleFontKey
   }
-  setZi2ziStatus('Model ready')
+  setZi2ziStatus(`Model ready (${ep === 'webgpu' ? 'GPU accelerated' : 'CPU'})`)
+}
+
+// Grows the worker pool for batch generation and keeps every sibling's style
+// factors in sync with the seed client's.
+async function ensureZi2ziPool(): Promise<number> {
+  const size = await zi2ziPool.grow(lastStyleFactors)
+  if (
+    zi2ziPoolStyleFontKey !== zi2ziStyleFontKey &&
+    lastStyleFactors &&
+    size > 1
+  ) {
+    await zi2ziPool.setStyleAll(lastStyleFactors)
+  }
+  zi2ziPoolStyleFontKey = zi2ziStyleFontKey
+  return size
 }
 
 // Invalidate the cached style factors when the style-source font changes
@@ -3035,13 +3069,16 @@ function invalidateZi2ziStyle(fontKey: string) {
   if (zi2ziStyleFontKey === fontKey) zi2ziStyleFontKey = null
 }
 
-async function generateGlyphInk(char: string): Promise<Float32Array> {
+async function generateGlyphInk(
+  char: string,
+  client: Zi2ziClient = zi2zi,
+): Promise<Float32Array> {
   const refEngine = await getChineseFontEngine('droid-sans-fallback')
   const content = renderGlyphTensor(refEngine.font, char)
   if (!content) {
     throw new Error(`Reference font has no outline for '${char}'`)
   }
-  return zi2zi.generate(content)
+  return client.generate(content)
 }
 
 function renderInkToCanvas(ink: Float32Array, canvas: HTMLCanvasElement) {
@@ -3285,41 +3322,58 @@ async function runBatchFill(fontKey: string) {
       )
     } else {
       await ensureZi2ziReady(fontKey)
-      for (let i = 0; i < plan.items.length; i++) {
-        if (batchCancelRequested) break
-        const item = plan.items[i]
-        setZi2ziStatus(
-          `[${i + 1}/${plan.items.length}] Generating '${item.char}' (from ${item.counterpartChar})…`,
-        )
-        updateBatchProgress(i + 1, plan.items.length)
-        try {
-          const ink = await generateGlyphInk(item.char)
-          const svgPath = traceGrayscaleImage(
-            ink,
-            MODEL_SIZE,
-            MODEL_SIZE,
-            state.zi2ziThreshold,
-            state.zi2ziSmoothing,
-          )
-          if (!svgPath) throw new Error('empty outline after vectorization')
-          spec.glyphs.push({
-            cp: item.cp,
-            svgPath,
-            targetCp: item.counterpartCp,
-          })
-          if (lastGenerated === null || i === plan.items.length - 1) {
+      // warm Pyodide while glyphs generate so the patch step starts instantly
+      import('./compiler.js').then((m) => m.prewarmPyodide()).catch(() => {})
+      const poolSize = await ensureZi2ziPool()
+      let completed = 0
+      await zi2ziPool.run(
+        plan.items.length,
+        async (client, i) => {
+          const item = plan.items[i]
+          try {
+            const ink = await generateGlyphInk(item.char, client)
+            const svgPath = traceGrayscaleImage(
+              ink,
+              MODEL_SIZE,
+              MODEL_SIZE,
+              state.zi2ziThreshold,
+              state.zi2ziSmoothing,
+            )
+            if (!svgPath) throw new Error('empty outline after vectorization')
+            spec.glyphs.push({
+              cp: item.cp,
+              svgPath,
+              targetCp: item.counterpartCp,
+            })
             lastGenerated = { char: item.char, ink }
-            renderInkToCanvas(ink, elements.zi2ziCanvasOutput)
-            retraceAndPreview()
+            // preview rendering costs a few ms per glyph (putImageData +
+            // re-trace); throttle it so fast EPs aren't bottlenecked by DOM
+            const now = performance.now()
+            if (now - lastBatchPreviewAt > 250) {
+              lastBatchPreviewAt = now
+              renderInkToCanvas(ink, elements.zi2ziCanvasOutput)
+              retraceAndPreview()
+            }
+          } catch (err: any) {
+            console.warn(
+              `Generation failed for '${item.char}', falling back to variant mapping:`,
+              err,
+            )
+            spec.aliases.push({ cp: item.cp, toCp: item.counterpartCp })
+            aliasFallbacks++
           }
-        } catch (err: any) {
-          console.warn(
-            `Generation failed for '${item.char}', falling back to variant mapping:`,
-            err,
+          completed++
+          setZi2ziStatus(
+            `[${completed}/${plan.items.length}] Generating glyphs (${poolSize} ${poolSize > 1 ? 'parallel workers' : 'worker'})… latest: '${item.char}'`,
           )
-          spec.aliases.push({ cp: item.cp, toCp: item.counterpartCp })
-          aliasFallbacks++
-        }
+          updateBatchProgress(completed, plan.items.length)
+        },
+        () => batchCancelRequested,
+      )
+      // make sure the preview reflects the final glyph after throttling
+      if (lastGenerated) {
+        renderInkToCanvas(lastGenerated.ink, elements.zi2ziCanvasOutput)
+        retraceAndPreview()
       }
     }
 

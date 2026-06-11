@@ -108,10 +108,30 @@ font, entirely client-side. Two modes:
 Model pipeline (offline, requires the `.venv-mxfont` Python env):
 
 1. `curl -L -o vendor/mxfont/generator.pth https://raw.githubusercontent.com/clovaai/mxfont/main/generator.pth`
-2. `.venv-mxfont/bin/python scripts/export-mxfont-onnx.py` — exports both
-   graphs, verifies ONNX/PyTorch parity, writes int8 variants.
-3. `.venv-mxfont/bin/python scripts/test-mxfont-quality.py [.int8]` — renders
+2. `.venv-mxfont/bin/python scripts/export-mxfont-onnx.py` — exports the fp32
+   graphs and verifies ONNX/PyTorch parity.
+3. `.venv-mxfont/bin/python scripts/quantize-mxfont-static.py` — static QDQ
+   Conv-only int8 quantization (calibrated on real glyph renders).
+4. `.venv-mxfont/bin/python scripts/test-mxfont-quality.py [.int8]` — renders
    comparison grids into `scratch/mxfont-quality/`.
+
+Inference performance (measured 2026-06, M4 Mac, Chrome):
+
+- Execution-provider selection in `frontend/zi2zi-client.ts`: WebGPU
+  (fp32 graphs, ~50 ms/glyph) on non-WebKit browsers with an adapter; plain
+  single-threaded WASM (int8 graphs, ~600 ms/glyph) elsewhere, parallelized
+  with a worker pool (up to 4 workers) for batch fills. Style factors are
+  encoded once and broadcast to pool siblings. Pyodide is prewarmed during
+  generation. `scripts/bench-mxfont.py` reproduces the native benchmarks.
+- Hard-won constraints (do not regress): dynamic quantization emits
+  ConvInteger ops that are 6-8x slower than fp32 everywhere — only static
+  QDQ Conv-only quantization is safe. int8 models must never run on the
+  WebGPU EP (per-node CPU fallback). fp16 conversion collapses to blank
+  output for some style fonts. Batched (N>1) graphs measured no faster.
+  WASM threads would need crossOriginIsolated (COOP/COEP via service
+  worker) — evaluated and skipped: the worker pool achieves the same
+  parallelism without the embedding/CDN risks. The service worker caches
+  /models/ cache-first: bump CACHE_NAME whenever model files change.
 
 ## Code Layout
 

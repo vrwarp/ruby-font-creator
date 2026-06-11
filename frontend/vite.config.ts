@@ -21,6 +21,11 @@ export default defineConfig({
       path: path.resolve(__dirname, './path-shim.ts'),
     },
   },
+  // keep the dep optimizer away from onnxruntime-web: pre-bundling breaks its
+  // runtime import.meta.url-relative loading of the wasm/mjs binaries
+  optimizeDeps: {
+    exclude: ['onnxruntime-web'],
+  },
   server: {
     port: 3000,
     open: false,

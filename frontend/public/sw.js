@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ruby-font-creator-cache-v5'
+const CACHE_NAME = 'ruby-font-creator-cache-v6'
 
 // App shell plus the assets every preview/build needs. Pyodide assets and the
 // MX-Font ONNX models are intentionally not pre-cached (≈25 MB / ≈24 MB) —

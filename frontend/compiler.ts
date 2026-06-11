@@ -40,6 +40,15 @@ async function initPyodide(logCallback: (msg: string) => void) {
   return pyodide
 }
 
+// Lets long-running flows (e.g. batch glyph generation) warm the Pyodide
+// runtime concurrently so the eventual patch/compile call doesn't pay the
+// multi-second startup serially.
+export function prewarmPyodide(
+  logCallback: (msg: string) => void = () => {},
+): Promise<unknown> {
+  return initPyodide(logCallback)
+}
+
 export interface CompileResult {
   ttf: Uint8Array
   woff2: Uint8Array

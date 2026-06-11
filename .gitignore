@@ -21,10 +21,8 @@ test/*.svg
 logs
 node_modules
 
-# fp32 MX-Font exports are regenerable (scripts/export-mxfont-onnx.py); only
-# the int8 variants used by the app are committed
-frontend/public/models/mxfont_encoder.onnx
-frontend/public/models/mxfont_decoder.onnx
+# all MX-Font model variants in frontend/public/models are committed: int8
+# (static QDQ) for the WASM path, fp32 for WebGPU
 .venv-mxfont/
 # pretrained MX-Font checkpoint (91 MB): curl -L -o vendor/mxfont/generator.pth \
 #   https://raw.githubusercontent.com/clovaai/mxfont/main/generator.pth

@@ -8,9 +8,42 @@
 
 export const MODEL_SIZE = 128
 
+// Averaged MX-Font style factors; computed once per font by one worker and
+// shareable with sibling pool workers without re-encoding the refs.
+export interface StyleFactors {
+  last: Float32Array
+  lastDims: number[]
+  skip: Float32Array
+  skipDims: number[]
+}
+
 interface PendingRequest {
   resolve: (value: any) => void
   reject: (err: Error) => void
+}
+
+export type Zi2ziEp = 'webgpu' | 'wasm'
+
+// WebGPU is used only on non-WebKit browsers (ort-web's JSEP build misbehaves
+// in Safari — microsoft/onnxruntime#26827) with a live adapter.
+let webGpuProbe: Promise<boolean> | null = null
+export function detectWebGpu(): Promise<boolean> {
+  if (!webGpuProbe) {
+    webGpuProbe = (async () => {
+      try {
+        const ua = navigator.userAgent
+        const isWebKit =
+          /AppleWebKit/.test(ua) && !/Chrome|Chromium|Edg/.test(ua)
+        if (isWebKit) return false
+        if (!('gpu' in navigator)) return false
+        const adapter = await (navigator as any).gpu.requestAdapter()
+        return !!adapter
+      } catch {
+        return false
+      }
+    })()
+  }
+  return webGpuProbe
 }
 
 export class Zi2ziClient {
@@ -18,13 +51,20 @@ export class Zi2ziClient {
   private pending = new Map<number, PendingRequest>()
   private nextId = 1
   private initialized = false
+  ep: Zi2ziEp | null = null
 
-  private ensureWorker(): Worker {
-    if (this.worker) return this.worker
-    this.worker = new Worker(new URL('./zi2zi-worker.ts', import.meta.url), {
-      type: 'module',
-    })
-    this.worker.onmessage = (e: MessageEvent) => {
+  private spawnWorker(ep: Zi2ziEp): Worker {
+    // both URLs are static literals so vite bundles both entries; the 26 MB
+    // JSEP runtime is only ever downloaded when the webgpu worker is spawned
+    const worker =
+      ep === 'webgpu'
+        ? new Worker(new URL('./zi2zi-worker-webgpu.ts', import.meta.url), {
+            type: 'module',
+          })
+        : new Worker(new URL('./zi2zi-worker.ts', import.meta.url), {
+            type: 'module',
+          })
+    worker.onmessage = (e: MessageEvent) => {
       const { type, id, message, output } = e.data
       const req = this.pending.get(id)
       if (!req) return
@@ -35,36 +75,56 @@ export class Zi2ziClient {
         req.resolve(output)
       }
     }
-    this.worker.onerror = (e: ErrorEvent) => {
+    worker.onerror = (e: ErrorEvent) => {
       const err = new Error(e.message || 'zi2zi worker crashed')
       for (const req of this.pending.values()) req.reject(err)
       this.pending.clear()
     }
-    return this.worker
+    return worker
   }
 
   private request<T>(
     msg: Record<string, unknown>,
     transfer?: Transferable[],
   ): Promise<T> {
-    const worker = this.ensureWorker()
+    if (!this.worker) throw new Error('Client not initialized')
     const id = this.nextId++
     return new Promise<T>((resolve, reject) => {
       this.pending.set(id, { resolve, reject })
-      worker.postMessage({ ...msg, id }, (transfer as any) || [])
+      this.worker!.postMessage({ ...msg, id }, (transfer as any) || [])
     })
   }
 
-  // assetBase: absolute base URL under which onnx/ and models/ are served
-  async init(variant: 'int8' | 'fp32' = 'int8'): Promise<void> {
-    if (this.initialized) return
+  // Picks WebGPU (fp32 model) where supported, plain WASM (int8) elsewhere.
+  // `ep: 'wasm'` forces the portable path (used for pool siblings and tests).
+  async init(
+    variant?: 'int8' | 'fp16' | 'fp32',
+    opt?: string,
+    ep: Zi2ziEp | 'auto' = 'auto',
+  ): Promise<Zi2ziEp> {
+    if (this.initialized) return this.ep!
+    const chosen: Zi2ziEp =
+      ep === 'auto' ? ((await detectWebGpu()) ? 'webgpu' : 'wasm') : ep
+    this.worker = this.spawnWorker(chosen)
     const assetBase = new URL('./', document.baseURI).href
-    await this.request({ type: 'init', assetBase, variant })
+    // int8 ops have no WebGPU kernels (per-node CPU fallback is slower than
+    // pure wasm), so the webgpu worker gets the fp32 graphs (fp16 rejected:
+    // blank output for some style inputs — see zi2zi-worker-webgpu.ts)
+    const v = variant ?? (chosen === 'webgpu' ? 'fp32' : 'int8')
+    await this.request({ type: 'init', assetBase, variant: v, opt })
+    this.ep = chosen
     this.initialized = true
+    return chosen
   }
 
-  async setStyle(refs: Float32Array[]): Promise<void> {
-    await this.request({ type: 'set-style', refs })
+  async setStyle(refs: Float32Array[]): Promise<StyleFactors> {
+    return this.request<StyleFactors>({ type: 'set-style', refs })
+  }
+
+  async setStyleRaw(factors: StyleFactors): Promise<void> {
+    // structured-clone (not transfer): the caller keeps the factors for
+    // further workers
+    await this.request({ type: 'set-style-raw', factors })
   }
 
   async generate(content: Float32Array): Promise<Float32Array> {
@@ -78,6 +138,76 @@ export class Zi2ziClient {
     this.worker = null
     this.pending.clear()
     this.initialized = false
+    this.ep = null
+  }
+}
+
+// Worker pool for batch generation. On WebGPU one worker is enough (the GPU
+// is the parallel resource); on the WASM path it spawns several independent
+// single-threaded workers — true parallelism without crossOriginIsolated.
+// Style factors are computed once by the seed client and broadcast raw to
+// siblings, so refs are not re-encoded per worker.
+export class Zi2ziPool {
+  readonly clients: Zi2ziClient[]
+
+  constructor(seed: Zi2ziClient) {
+    this.clients = [seed]
+  }
+
+  static targetSize(ep: Zi2ziEp): number {
+    if (ep === 'webgpu') return 1
+    const cores = navigator.hardwareConcurrency || 4
+    let size = Math.min(4, Math.max(1, Math.ceil(cores / 2) - 1))
+    const memGb = (navigator as any).deviceMemory
+    if (memGb && memGb <= 4) size = Math.min(size, 2)
+    return size
+  }
+
+  // Grows the pool to the EP-appropriate size and pushes the style factors
+  // to every sibling. The seed client must already be initialized + styled.
+  async grow(styleFactors: StyleFactors | null): Promise<number> {
+    const ep = this.clients[0].ep
+    if (!ep) throw new Error('Pool seed client not initialized')
+    const target = Zi2ziPool.targetSize(ep)
+    const newcomers: Zi2ziClient[] = []
+    while (this.clients.length < target) {
+      const c = new Zi2ziClient()
+      this.clients.push(c)
+      newcomers.push(c)
+    }
+    await Promise.all(newcomers.map((c) => c.init(undefined, undefined, ep)))
+    if (styleFactors) {
+      await Promise.all(newcomers.map((c) => c.setStyleRaw(styleFactors)))
+    }
+    return this.clients.length
+  }
+
+  async setStyleAll(factors: StyleFactors): Promise<void> {
+    await Promise.all(this.clients.map((c) => c.setStyleRaw(factors)))
+  }
+
+  // Runs `work(client, index)` over indices 0..count-1 with one in-flight
+  // item per worker. Stops dispatching when shouldStop() turns true.
+  async run(
+    count: number,
+    work: (client: Zi2ziClient, index: number) => Promise<void>,
+    shouldStop: () => boolean,
+  ): Promise<void> {
+    let next = 0
+    await Promise.all(
+      this.clients.map(async (client) => {
+        while (!shouldStop()) {
+          const i = next++
+          if (i >= count) break
+          await work(client, i)
+        }
+      }),
+    )
+  }
+
+  disposeSiblings() {
+    for (const c of this.clients.slice(1)) c.dispose()
+    this.clients.length = 1
   }
 }
 
