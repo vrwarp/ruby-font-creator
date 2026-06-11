@@ -283,7 +283,10 @@ export class MockPyodide {
     }
 
     // Legacy simulated scripts (used directly by pyodide.test.ts)
-    if (code.includes('inject')) {
+    if (
+      code.includes('inject_gsub') ||
+      code.includes('inject_and_compress_woff2')
+    ) {
       const inputFont = this.FS.readFile('in.ttf')
       // Simulate adding GSUB table by modifying a byte or just outputting it
       const outputFont = new Uint8Array(inputFont.length + 4)
@@ -321,6 +324,12 @@ export class MockPyodide {
     }
     if (code.includes("'/font_patched.ttf'")) {
       this.FS.writeFile('/font_patched.ttf', this.FS.readFile('/font.ttf'))
+    }
+    if (code.includes("'/chinese_font_patched.ttf'")) {
+      this.FS.writeFile(
+        '/chinese_font_patched.ttf',
+        this.FS.readFile('/chinese_font.ttf'),
+      )
     }
 
     return 'Python script execution completed'

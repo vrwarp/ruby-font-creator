@@ -89,6 +89,12 @@
               <!-- Dynamically populated -->
             </select>
           </div>
+          <div class="control-group">
+            <label for="chinese-font-select">Base Chinese Font</label>
+            <select id="chinese-font-select" class="select-control">
+              <!-- Automatically populated -->
+            </select>
+          </div>
           <div class="control-group range-control">
             <div class="range-labels">
               <span class="range-name"
@@ -839,6 +845,491 @@
                   >
                     ā á ǎ à ē é ě è ī í ǐ ì ō ó ǒ ò ū ú ǔ ù ü ǖ ǘ ǚ ǜ
                   </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Chinese Font Manager Card -->
+            <div class="card chinese-manager-card">
+              <div
+                class="card-header"
+                style="
+                  display: flex;
+                  justify-content: space-between;
+                  align-items: center;
+                  flex-wrap: wrap;
+                  gap: 1rem;
+                "
+              >
+                <div>
+                  <h3>Base Chinese Font Settings</h3>
+                  <p class="card-subtitle">
+                    Manage fonts used for rendering the main Chinese characters.
+                  </p>
+                </div>
+                <div
+                  class="selector-group"
+                  style="display: flex; align-items: center; gap: 0.5rem"
+                >
+                  <span
+                    style="
+                      font-size: 0.75rem;
+                      font-weight: 600;
+                      color: var(--text-secondary);
+                    "
+                    >Select Font to Manage:</span
+                  >
+                  <select
+                    id="manager-chinese-font-select"
+                    class="select-control"
+                    style="
+                      width: 180px;
+                      padding: 0.35rem 0.5rem;
+                      font-size: 0.75rem;
+                      border-radius: 0.5rem;
+                    "
+                  >
+                    <!-- Dynamically populated -->
+                  </select>
+                </div>
+              </div>
+              <div class="card-body">
+                <div class="pinyin-manager-cols">
+                  <!-- Control Column -->
+                  <div class="pinyin-control-column">
+                    <!-- Upload Custom TTF -->
+                    <div class="control-group">
+                      <label>Upload Custom Chinese TTF</label>
+                      <div id="chinese-upload-zone" class="upload-zone">
+                        <i class="fa-solid fa-cloud-arrow-up upload-icon"></i>
+                        <span class="upload-text"
+                          >Drag & drop TTF here or click</span
+                        >
+                        <input
+                          type="file"
+                          id="chinese-file-input"
+                          accept=".ttf"
+                          style="display: none"
+                        />
+                      </div>
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div class="pinyin-actions-row">
+                      <button
+                        id="btn-delete-chinese"
+                        class="btn"
+                        style="
+                          flex: 1;
+                          background-color: rgba(244, 63, 94, 0.15);
+                          color: var(--color-rose);
+                          border-color: rgba(244, 63, 94, 0.3);
+                        "
+                        disabled
+                      >
+                        <i class="fa-solid fa-trash"></i> Delete Font
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Info Column -->
+                  <div class="pinyin-audit-column">
+                    <div class="flex-row-between" style="margin-bottom: 0.5rem">
+                      <label
+                        style="
+                          font-weight: 600;
+                          font-size: 0.85rem;
+                          color: var(--text-primary);
+                        "
+                        >Chinese Font Metrics</label
+                      >
+                    </div>
+                    <div class="info-pill" style="margin-bottom: 0.5rem">
+                      <div class="info-title">Font Family Name</div>
+                      <div class="info-value" id="chinese-font-family-lbl">
+                        Droid Sans Fallback (System)
+                      </div>
+                    </div>
+                    <div class="info-pill" style="margin-bottom: 0.5rem">
+                      <div class="info-title">Units Per EM</div>
+                      <div class="info-value" id="chinese-font-em-lbl">
+                        2048
+                      </div>
+                    </div>
+                    <div class="info-pill">
+                      <div class="info-title">
+                        Simplified / Traditional Coverage
+                      </div>
+                      <div class="info-value" id="chinese-font-coverage-lbl">
+                        —
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <hr
+                  class="section-divider"
+                  style="
+                    border: 0;
+                    border-top: 1px solid var(--border-color);
+                    margin: 1.5rem 0;
+                  "
+                />
+
+                <div class="control-group pinyin-preview-group">
+                  <div class="flex-row-between" style="margin-bottom: 0.5rem">
+                    <label
+                      style="
+                        font-weight: 600;
+                        font-size: 0.85rem;
+                        color: var(--text-primary);
+                      "
+                      >Chinese Font Glyph Preview</label
+                    >
+                    <button
+                      id="btn-use-chinese"
+                      class="btn btn-small btn-secondary"
+                      disabled
+                    >
+                      <i class="fa-solid fa-check"></i> Set Active for Layout
+                    </button>
+                  </div>
+                  <div
+                    id="chinese-manager-preview"
+                    class="pinyin-manager-preview-box"
+                    style="font-size: 1.5rem"
+                  >
+                    奇异恩典何等甘甜，我罪已得赦免。前我失丧，今被寻回，瞎眼今得看见。
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- AI Glyph Generation Card (zi2zi-style, MX-Font) -->
+            <div class="card zi2zi-manager-card">
+              <div class="card-header">
+                <div>
+                  <h3>AI Glyph Generation (zi2zi-style Transfer)</h3>
+                  <p class="card-subtitle">
+                    Fill missing simplified/traditional characters in the
+                    selected Chinese font. Few-shot style transfer (MX-Font,
+                    local ONNX inference) generates new glyph shapes matching
+                    the font's style; variant mapping reuses existing
+                    counterpart glyphs.
+                  </p>
+                </div>
+              </div>
+              <div class="card-body">
+                <div class="pinyin-manager-cols">
+                  <!-- Inputs Column -->
+                  <div class="pinyin-control-column" style="gap: 1rem">
+                    <div
+                      class="custom-input-group"
+                      style="display: flex; gap: 0.5rem; margin-top: 0"
+                    >
+                      <div class="input-field" style="flex: 1">
+                        <label for="zi2zi-input-char"
+                          >Character to Generate</label
+                        >
+                        <input
+                          type="text"
+                          id="zi2zi-input-char"
+                          maxlength="2"
+                          placeholder="书"
+                          value="书"
+                          class="select-control"
+                          style="width: 100%"
+                        />
+                      </div>
+                    </div>
+                    <p
+                      style="
+                        font-size: 0.7rem;
+                        color: var(--text-secondary);
+                        margin: 0;
+                      "
+                    >
+                      Style references are taken from the font selected in
+                      &ldquo;Select Font to Manage&rdquo; above; the character
+                      shape is sourced from the bundled reference font.
+                    </p>
+
+                    <div id="zi2zi-vector-controls-wrapper">
+                      <div class="control-group range-control">
+                        <div class="range-labels">
+                          <span class="range-name">Vectorizer Threshold</span>
+                          <span class="range-value" id="val-zi2zi-threshold"
+                            >128</span
+                          >
+                        </div>
+                        <input
+                          type="range"
+                          id="range-zi2zi-threshold"
+                          min="20"
+                          max="230"
+                          step="1"
+                          value="128"
+                          style="width: 100%"
+                        />
+                      </div>
+
+                      <div class="control-group range-control">
+                        <div class="range-labels">
+                          <span class="range-name">Curve Smoothing</span>
+                          <span class="range-value" id="val-zi2zi-smoothing"
+                            >1.0</span
+                          >
+                        </div>
+                        <input
+                          type="range"
+                          id="range-zi2zi-smoothing"
+                          min="0.1"
+                          max="3.0"
+                          step="0.1"
+                          value="1.0"
+                          style="width: 100%"
+                        />
+                      </div>
+                    </div>
+
+                    <button
+                      id="btn-zi2zi-generate"
+                      class="btn btn-primary"
+                      style="width: 100%; margin-top: 0.5rem"
+                    >
+                      <i class="fa-solid fa-wand-magic-sparkles"></i> Generate
+                      Stylized Glyph
+                    </button>
+                    <div
+                      id="zi2zi-status-lbl"
+                      style="
+                        font-size: 0.7rem;
+                        color: var(--text-secondary);
+                        min-height: 1rem;
+                      "
+                    >
+                      Model not loaded
+                    </div>
+                  </div>
+
+                  <!-- Output Previews Column -->
+                  <div class="pinyin-audit-column">
+                    <label
+                      style="
+                        font-weight: 600;
+                        font-size: 0.85rem;
+                        color: var(--text-primary);
+                        margin-bottom: 0.5rem;
+                        display: block;
+                      "
+                      >Style Transfer Pipeline Visualization</label
+                    >
+                    <div
+                      class="zi2zi-pipeline-container"
+                      style="
+                        display: flex;
+                        gap: 0.75rem;
+                        justify-content: space-between;
+                      "
+                    >
+                      <div
+                        class="pipeline-step"
+                        style="flex: 1; text-align: center"
+                      >
+                        <span
+                          style="
+                            font-size: 0.65rem;
+                            color: var(--text-secondary);
+                            display: block;
+                            margin-bottom: 0.25rem;
+                          "
+                          >1. Source Character</span
+                        >
+                        <div
+                          id="zi2zi-src-preview"
+                          class="zi2zi-preview-cell"
+                          style="
+                            width: 80px;
+                            height: 80px;
+                            border: 1px solid var(--border-color);
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            font-size: 2.5rem;
+                            background: var(--bg-app);
+                            border-radius: 0.25rem;
+                            margin: 0 auto;
+                          "
+                        >
+                          书
+                        </div>
+                      </div>
+                      <div
+                        class="pipeline-step"
+                        style="flex: 1; text-align: center"
+                      >
+                        <span
+                          style="
+                            font-size: 0.65rem;
+                            color: var(--text-secondary);
+                            display: block;
+                            margin-bottom: 0.25rem;
+                          "
+                          >2. MX-Font Output</span
+                        >
+                        <canvas
+                          id="zi2zi-canvas-output"
+                          width="128"
+                          height="128"
+                          style="
+                            width: 80px;
+                            height: 80px;
+                            border: 1px solid var(--border-color);
+                            display: block;
+                            background: #000;
+                            border-radius: 0.25rem;
+                            image-rendering: pixelated;
+                            margin: 0 auto;
+                          "
+                        ></canvas>
+                      </div>
+                      <div
+                        class="pipeline-step"
+                        style="flex: 1; text-align: center"
+                      >
+                        <span
+                          style="
+                            font-size: 0.65rem;
+                            color: var(--text-secondary);
+                            display: block;
+                            margin-bottom: 0.25rem;
+                          "
+                          >3. Vector SVG Outline</span
+                        >
+                        <div
+                          id="zi2zi-svg-output"
+                          class="zi2zi-preview-cell"
+                          style="
+                            width: 80px;
+                            height: 80px;
+                            border: 1px solid var(--border-color);
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            background: var(--bg-app);
+                            border-radius: 0.25rem;
+                            margin: 0 auto;
+                          "
+                        >
+                          <svg
+                            width="80"
+                            height="80"
+                            viewBox="0 0 128 128"
+                            id="zi2zi-svg-render"
+                            style="fill: var(--text-primary)"
+                          ></svg>
+                        </div>
+                      </div>
+                    </div>
+                    <div
+                      class="flex-row-between"
+                      style="margin-top: 1rem; gap: 1rem"
+                    >
+                      <button
+                        id="btn-zi2zi-inject"
+                        class="btn btn-secondary"
+                        style="flex: 1"
+                        disabled
+                      >
+                        <i class="fa-solid fa-file-import"></i> Inject Glyph
+                        into Selected Font
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <hr
+                  class="section-divider"
+                  style="
+                    border: 0;
+                    border-top: 1px solid var(--border-color);
+                    margin: 1.5rem 0;
+                  "
+                />
+
+                <!-- Batch fill controls -->
+                <div
+                  class="flex-row-between"
+                  style="gap: 1rem; flex-wrap: wrap; align-items: flex-end"
+                >
+                  <div class="input-field" style="flex: 1; min-width: 160px">
+                    <label for="zi2zi-direction-select">Fill Direction</label>
+                    <select
+                      id="zi2zi-direction-select"
+                      class="select-control"
+                      style="width: 100%"
+                    >
+                      <option value="auto">Auto-detect missing half</option>
+                      <option value="s2t">
+                        Fill simplified (font is traditional)
+                      </option>
+                      <option value="t2s">
+                        Fill traditional (font is simplified)
+                      </option>
+                    </select>
+                  </div>
+                  <div class="input-field" style="flex: 1; min-width: 160px">
+                    <label for="zi2zi-mode-select">Fill Mode</label>
+                    <select
+                      id="zi2zi-mode-select"
+                      class="select-control"
+                      style="width: 100%"
+                    >
+                      <option value="ai">
+                        AI style transfer (generated shapes)
+                      </option>
+                      <option value="alias">
+                        Variant mapping (reuse counterpart glyphs)
+                      </option>
+                    </select>
+                  </div>
+                  <button
+                    id="btn-zi2zi-batch"
+                    class="btn btn-secondary"
+                    style="flex: 1; min-width: 200px"
+                  >
+                    <i class="fa-solid fa-fill-drip"></i> Fill Missing
+                    Characters
+                  </button>
+                </div>
+                <div style="margin-top: 0.75rem">
+                  <div
+                    style="
+                      height: 6px;
+                      background: var(--bg-app);
+                      border-radius: 3px;
+                      overflow: hidden;
+                    "
+                  >
+                    <div
+                      id="zi2zi-progress-bar"
+                      style="
+                        height: 100%;
+                        width: 0%;
+                        background: var(--color-primary, #6366f1);
+                        transition: width 0.2s;
+                      "
+                    ></div>
+                  </div>
+                  <div
+                    id="zi2zi-progress-lbl"
+                    style="
+                      font-size: 0.7rem;
+                      color: var(--text-secondary);
+                      margin-top: 0.25rem;
+                      text-align: right;
+                    "
+                  ></div>
                 </div>
               </div>
             </div>

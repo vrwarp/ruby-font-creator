@@ -1843,3 +1843,83 @@ body {
   color: white;
   border-color: #f43f5e;
 }
+
+/* Base Chinese Font and zi2zi Style Transfer Custom Styles */
+
+.chinese-manager-card,
+.zi2zi-manager-card {
+  grid-column: span 2;
+  margin-top: 1rem;
+}
+
+@media (max-width: 1024px) {
+  .chinese-manager-card,
+  .zi2zi-manager-card {
+    grid-column: span 1;
+  }
+}
+
+.zi2zi-pipeline-container {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+  margin-top: 0.5rem;
+}
+
+.pipeline-step {
+  flex: 1;
+  text-align: center;
+}
+
+.zi2zi-preview-cell {
+  width: 90px;
+  height: 90px;
+  border: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--bg-app);
+  border-radius: 0.5rem;
+  margin: 0 auto;
+  box-shadow: var(--shadow-inset-small);
+  color: var(--text-primary);
+  font-family: var(--font-serif);
+  font-weight: 700;
+  position: relative;
+  overflow: hidden;
+  transition: all var(--transition-fast);
+}
+
+.zi2zi-preview-cell canvas {
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  display: block;
+}
+
+.zi2zi-preview-cell svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.info-pill {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background-color: var(--bg-app);
+  border: 1px solid var(--border-color);
+  border-radius: 0.6rem;
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+}
+
+.info-pill .info-title {
+  margin: 0;
+}
+
+.info-pill .info-value {
+  margin: 0;
+  text-align: right;
+}

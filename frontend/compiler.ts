@@ -3,6 +3,9 @@ import svgpath from 'svgpath'
 import ruby from '../src/ruby.js'
 import type { GlyphEntry, BuildConfig } from '../src/types.js'
 import { buildPolyphonicMap } from '../src/polyphonic.js'
+// fontTools patch script, inlined at build time (see frontend/raw-imports.d.ts)
+// so browser, vitest, and the python3 integration tests share one source.
+import patchFontPySource from './py/patch_chinese_font.py?raw'
 
 let pyodideInstance: any = null
 
@@ -530,4 +533,139 @@ font.save('/font_deleted.ttf')
 
   logCallback(`Glyph '${charToDelete}' successfully removed from font.\n`)
   return pyodide.FS.readFile('/font_deleted.ttf')
+}
+
+// --- Base Chinese font patching (variant fill + AI-generated glyphs) ---
+//
+// The heavy lifting happens in Python (fontTools inside Pyodide); the script
+// lives in frontend/py/patch_chinese_font.py and is inlined at build time
+// (?raw import at the top of this file) so the browser, vitest, and the
+// python3-based integration tests all execute the exact same code.
+
+interface FontPoint {
+  x: number
+  y: number
+}
+
+function sampleBezier(
+  p0: FontPoint,
+  cp1: FontPoint,
+  cp2: FontPoint,
+  p1: FontPoint,
+  steps: number = 8,
+): FontPoint[] {
+  const pts: FontPoint[] = []
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps
+    const mt = 1 - t
+    const x =
+      mt * mt * mt * p0.x +
+      3 * mt * mt * t * cp1.x +
+      3 * mt * t * t * cp2.x +
+      t * t * t * p1.x
+    const y =
+      mt * mt * mt * p0.y +
+      3 * mt * mt * t * cp1.y +
+      3 * mt * t * t * cp2.y +
+      t * t * t * p1.y
+    pts.push({ x, y })
+  }
+  return pts
+}
+
+// Flattens an absolute-command SVG path (M/L/C/Z, as produced by
+// src/vectorizer.ts) into polyline contours.
+export function flattenSvgPath(pathStr: string): FontPoint[][] {
+  const contours: FontPoint[][] = []
+  let currentContour: FontPoint[] = []
+
+  const tokens = pathStr.match(/[MLCZmlcz]|[+-]?(\d+\.?\d*|\.\d+)/g) || []
+
+  let i = 0
+  let lastPt: FontPoint = { x: 0, y: 0 }
+
+  const num = (idx: number) => parseFloat(tokens[idx])
+
+  while (i < tokens.length) {
+    const cmd = tokens[i]
+    if (cmd === 'M' || cmd === 'm') {
+      if (currentContour.length > 0) contours.push(currentContour)
+      currentContour = []
+      lastPt = { x: num(i + 1), y: num(i + 2) }
+      currentContour.push(lastPt)
+      i += 3
+    } else if (cmd === 'L' || cmd === 'l') {
+      lastPt = { x: num(i + 1), y: num(i + 2) }
+      currentContour.push(lastPt)
+      i += 3
+    } else if (cmd === 'C' || cmd === 'c') {
+      const cp1 = { x: num(i + 1), y: num(i + 2) }
+      const cp2 = { x: num(i + 3), y: num(i + 4) }
+      const p1 = { x: num(i + 5), y: num(i + 6) }
+      currentContour.push(...sampleBezier(lastPt, cp1, cp2, p1))
+      lastPt = p1
+      i += 7
+    } else if (cmd === 'Z' || cmd === 'z') {
+      if (currentContour.length > 0) {
+        contours.push(currentContour)
+        currentContour = []
+      }
+      i++
+    } else {
+      i++
+    }
+  }
+
+  if (currentContour.length > 0) contours.push(currentContour)
+  return contours
+}
+
+export interface PatchAlias {
+  cp: number
+  toCp: number
+}
+
+export interface PatchGlyph {
+  cp: number
+  svgPath: string // 128x128 y-down grid coordinates (vectorizer output)
+  targetCp: number | null // glyph whose metrics/bbox anchor the new outline
+}
+
+export interface ChineseFontPatchSpec {
+  aliases: PatchAlias[]
+  glyphs: PatchGlyph[]
+}
+
+export async function patchChineseFontInBrowser(
+  fontBytes: Uint8Array,
+  spec: ChineseFontPatchSpec,
+  logCallback: (msg: string) => void,
+): Promise<Uint8Array> {
+  logCallback('Initializing Pyodide for Chinese font patching...\n')
+  const pyodide = await initPyodide(logCallback)
+
+  logCallback(
+    `Patching font: ${spec.aliases.length} variant aliases, ` +
+      `${spec.glyphs.length} generated glyphs...\n`,
+  )
+  pyodide.FS.writeFile('/chinese_font.ttf', fontBytes)
+
+  const pySpec = {
+    aliases: spec.aliases,
+    glyphs: spec.glyphs.map((g) => ({
+      cp: g.cp,
+      targetCp: g.targetCp,
+      contours: flattenSvgPath(g.svgPath).map((c) => c.map((p) => [p.x, p.y])),
+    })),
+  }
+
+  pyodide.globals.set('log_js', logCallback)
+  pyodide.globals.set('patch_spec_json', JSON.stringify(pySpec))
+
+  await pyodide.runPythonAsync(patchFontPySource)
+
+  logCallback('Reading patched Chinese font from virtual filesystem...\n')
+  const patchedBytes = pyodide.FS.readFile('/chinese_font_patched.ttf')
+  logCallback('Chinese font patching complete!\n')
+  return patchedBytes
 }

@@ -6,6 +6,19 @@ import {
   getAlternateGlyphEntries,
   POLYPHONIC_ENTRIES,
 } from '../src/polyphonic.js'
+import { traceGrayscaleImage } from '../src/vectorizer.js'
+import {
+  planVariantFill,
+  summarizeCoverage,
+  type FillDirection,
+  type VariantData,
+} from '../src/variants.js'
+import {
+  Zi2ziClient,
+  MODEL_SIZE,
+  renderGlyphTensor,
+  pickStyleRefs,
+} from './zi2zi-client.js'
 
 // Interface declarations
 interface SyllablePreset {
@@ -294,7 +307,9 @@ const state = {
   // Layout & Alignment
   placement: 'top', // top | bottom
   pinyinFont: 'droid-sans', // droid-sans | pt-sans-regular | pt-sans-bold
+  chineseFont: 'droid-sans-fallback',
   managerSelectedFont: 'droid-sans',
+  managerSelectedChineseFont: 'droid-sans-fallback',
   showGuides: false,
   characterWidth: 80,
 
@@ -346,6 +361,11 @@ const state = {
   activeTab: 'worship', // worship | textbook | sandbox | tester | manager
   darkMode: true,
   enablePolyphonic: true,
+  zi2ziThreshold: 128,
+  zi2ziSmoothing: 1.0,
+  zi2ziGeneratedSvg: '',
+  zi2ziGeneratedChar: '',
+  zi2ziStatus: 'Model not loaded',
 }
 
 // DOM Selectors
@@ -502,6 +522,63 @@ const elements = {
   testerTextInput: document.getElementById(
     'tester-text-input',
   ) as HTMLTextAreaElement,
+
+  // Chinese Font Selectors
+  chineseFontSelect: document.getElementById(
+    'chinese-font-select',
+  ) as HTMLSelectElement,
+  chineseUploadZone: document.getElementById('chinese-upload-zone')!,
+  chineseFileInput: document.getElementById(
+    'chinese-file-input',
+  ) as HTMLInputElement,
+  managerChineseFontSelect: document.getElementById(
+    'manager-chinese-font-select',
+  ) as HTMLSelectElement,
+  btnUseChinese: document.getElementById(
+    'btn-use-chinese',
+  ) as HTMLButtonElement,
+  btnDeleteChinese: document.getElementById(
+    'btn-delete-chinese',
+  ) as HTMLButtonElement,
+  chineseManagerPreview: document.getElementById('chinese-manager-preview')!,
+  chineseFontFamilyLbl: document.getElementById('chinese-font-family-lbl')!,
+  chineseFontEmLbl: document.getElementById('chinese-font-em-lbl')!,
+
+  zi2ziInputChar: document.getElementById(
+    'zi2zi-input-char',
+  ) as HTMLInputElement,
+  zi2ziStatusLbl: document.getElementById('zi2zi-status-lbl')!,
+  zi2ziDirectionSelect: document.getElementById(
+    'zi2zi-direction-select',
+  ) as HTMLSelectElement,
+  zi2ziModeSelect: document.getElementById(
+    'zi2zi-mode-select',
+  ) as HTMLSelectElement,
+  zi2ziProgressBar: document.getElementById('zi2zi-progress-bar')!,
+  zi2ziProgressLbl: document.getElementById('zi2zi-progress-lbl')!,
+  chineseFontCoverageLbl: document.getElementById('chinese-font-coverage-lbl')!,
+  rangeZi2ziThreshold: document.getElementById(
+    'range-zi2zi-threshold',
+  ) as HTMLInputElement,
+  valZi2ziThreshold: document.getElementById('val-zi2zi-threshold')!,
+  rangeZi2ziSmoothing: document.getElementById(
+    'range-zi2zi-smoothing',
+  ) as HTMLInputElement,
+  valZi2ziSmoothing: document.getElementById('val-zi2zi-smoothing')!,
+  btnZi2ziGenerate: document.getElementById(
+    'btn-zi2zi-generate',
+  ) as HTMLButtonElement,
+  btnZi2ziInject: document.getElementById(
+    'btn-zi2zi-inject',
+  ) as HTMLButtonElement,
+  btnZi2ziBatch: document.getElementById(
+    'btn-zi2zi-batch',
+  ) as HTMLButtonElement,
+  zi2ziSrcPreview: document.getElementById('zi2zi-src-preview')!,
+  zi2ziCanvasOutput: document.getElementById(
+    'zi2zi-canvas-output',
+  ) as HTMLCanvasElement,
+  zi2ziSvgRender: document.getElementById('zi2zi-svg-render')!,
 }
 
 // Start Initialize
@@ -534,6 +611,10 @@ function saveStateToUrl() {
   params.set('testerFontSize', state.testerFontSize.toString())
   params.set('testerLineHeight', state.testerLineHeight.toString())
   params.set('testerText', state.testerText)
+
+  params.set('chineseFont', state.chineseFont)
+  params.set('zi2ziThreshold', state.zi2ziThreshold.toString())
+  params.set('zi2ziSmoothing', state.zi2ziSmoothing.toString())
 
   const newUrl = `${window.location.pathname}?${params.toString()}${window.location.hash}`
   window.history.replaceState({}, '', newUrl)
@@ -650,6 +731,20 @@ function loadStateFromUrl() {
     3.0,
   )
   if (params.has('testerText')) state.testerText = params.get('testerText')!
+
+  if (params.has('chineseFont')) state.chineseFont = params.get('chineseFont')!
+  state.zi2ziThreshold = readInt(
+    'zi2ziThreshold',
+    state.zi2ziThreshold,
+    20,
+    230,
+  )
+  state.zi2ziSmoothing = readFloat(
+    'zi2ziSmoothing',
+    state.zi2ziSmoothing,
+    0.1,
+    3.0,
+  )
 }
 
 function syncUIFromState() {
@@ -734,6 +829,22 @@ function syncUIFromState() {
     elements.testerFontStatus.className = 'badge badge-warning'
     elements.testerFontStatus.textContent = 'No Font Loaded'
   }
+
+  // Chinese Font Selectors Sync
+  if (elements.chineseFontSelect) {
+    elements.chineseFontSelect.value = state.chineseFont
+  }
+  if (elements.managerChineseFontSelect) {
+    elements.managerChineseFontSelect.value = state.managerSelectedChineseFont
+  }
+
+  // zi2zi UI Sync
+  elements.rangeZi2ziThreshold.value = state.zi2ziThreshold.toString()
+  elements.valZi2ziThreshold.textContent = state.zi2ziThreshold.toString()
+  elements.rangeZi2ziSmoothing.value = state.zi2ziSmoothing.toString()
+  elements.valZi2ziSmoothing.textContent = state.zi2ziSmoothing.toFixed(1)
+  elements.zi2ziInputChar.value = state.zi2ziGeneratedChar || '书'
+  elements.zi2ziSrcPreview.textContent = elements.zi2ziInputChar.value
 }
 
 // Apply the layout configuration stored with a compiled font, then refresh
@@ -1203,10 +1314,13 @@ function init() {
   setupPresets()
   setupEventListeners()
   setupPinyinFontEvents()
+  setupChineseFontEvents()
+  setupZi2ziEvents()
   loadLocalFont()
   loadStateFromUrl()
   syncUIFromState()
   refreshPinyinFontsDropdown()
+  refreshChineseFontsDropdown()
   fetchAndPopulateFonts()
   updateUI()
 }
@@ -1625,13 +1739,7 @@ const annotationFontEngines: Record<string, any> = {}
 
 async function getLocalFontEngine(): Promise<any> {
   if (localFontEngine) return localFontEngine
-
-  const res = await fetch('./resources/fonts/DroidSansFallbackFull.ttf')
-  if (!res.ok)
-    throw new Error('Failed to fetch base font DroidSansFallbackFull.ttf')
-  const buffer = await res.arrayBuffer()
-  const font = opentype.parse(buffer)
-  localFontEngine = new TextToSVG(font)
+  localFontEngine = await getChineseFontEngine(state.chineseFont)
   return localFontEngine
 }
 
@@ -2630,6 +2738,654 @@ if ('serviceWorker' in navigator) {
         console.error('[PWA] Service Worker registration failed:', err)
       })
   })
+}
+
+// Custom Chinese Font and zi2zi helper functions
+
+const chineseFontEngines: Record<string, any> = {}
+
+async function getChineseFontEngine(fontKey: string): Promise<any> {
+  if (chineseFontEngines[fontKey]) return chineseFontEngines[fontKey]
+
+  if (fontKey === 'droid-sans-fallback') {
+    const res = await fetch('./resources/fonts/DroidSansFallbackFull.ttf')
+    if (!res.ok)
+      throw new Error('Failed to fetch base font DroidSansFallbackFull.ttf')
+    const buffer = await res.arrayBuffer()
+    const font = opentype.parse(buffer)
+    const engine = new TextToSVG(font)
+    chineseFontEngines[fontKey] = engine
+    return engine
+  } else {
+    const { getChineseFont } = await import('./db.js')
+    const fontEntry = await getChineseFont(fontKey)
+    if (!fontEntry) {
+      throw new Error(`Chinese font not found in DB: ${fontKey}`)
+    }
+    const buffer = fontEntry.ttf.buffer.slice(
+      fontEntry.ttf.byteOffset,
+      fontEntry.ttf.byteOffset + fontEntry.ttf.byteLength,
+    )
+    const font = opentype.parse(buffer)
+    const engine = new TextToSVG(font)
+    chineseFontEngines[fontKey] = engine
+    return engine
+  }
+}
+
+async function refreshChineseFontsDropdown(selectedName?: string) {
+  try {
+    const { listChineseFonts } = await import('./db.js')
+    const customFonts = await listChineseFonts()
+
+    elements.chineseFontSelect.innerHTML = ''
+    elements.managerChineseFontSelect.innerHTML = ''
+
+    const systemFonts = [
+      { value: 'droid-sans-fallback', text: 'Droid Sans Fallback (System)' },
+    ]
+
+    systemFonts.forEach((f) => {
+      const opt = document.createElement('option')
+      opt.value = f.value
+      opt.textContent = f.text
+      elements.chineseFontSelect.appendChild(opt)
+
+      const optM = document.createElement('option')
+      optM.value = f.value
+      optM.textContent = f.text
+      elements.managerChineseFontSelect.appendChild(optM)
+    })
+
+    customFonts.forEach((f) => {
+      const opt = document.createElement('option')
+      opt.value = f.name
+      opt.textContent = `${f.displayName}`
+      elements.chineseFontSelect.appendChild(opt)
+
+      const optM = document.createElement('option')
+      optM.value = f.name
+      optM.textContent = `${f.displayName}`
+      elements.managerChineseFontSelect.appendChild(optM)
+    })
+
+    const target = state.chineseFont || 'droid-sans-fallback'
+    elements.chineseFontSelect.value = target
+
+    const managedTarget =
+      selectedName || state.managerSelectedChineseFont || 'droid-sans-fallback'
+    elements.managerChineseFontSelect.value = managedTarget
+    state.managerSelectedChineseFont = managedTarget
+
+    await auditActiveChineseFont()
+  } catch (err) {
+    console.error('Failed to refresh Chinese fonts list:', err)
+  }
+}
+
+async function auditActiveChineseFont() {
+  try {
+    const fontKey = state.managerSelectedChineseFont
+    const isSystem = fontKey === 'droid-sans-fallback'
+
+    elements.btnDeleteChinese.disabled = isSystem
+    elements.btnUseChinese.disabled = state.chineseFont === fontKey
+
+    const engine = await getChineseFontEngine(fontKey)
+    const font = engine.font
+
+    elements.chineseFontFamilyLbl.textContent =
+      font.names.fontFamily?.en || fontKey
+    elements.chineseFontEmLbl.textContent = font.unitsPerEm.toString()
+    updateChineseFontCoverageInfo(font)
+
+    // The preview box is cosmetic; some fonts (e.g. Droid Sans Fallback Full)
+    // fail Chrome's OpenType Sanitizer when loaded via FontFace even though
+    // opentype.js parses them fine — fall back to the default family then.
+    try {
+      const fontName = `manager-chinese-${fontKey}`
+      let fontBuffer: ArrayBuffer
+      if (isSystem) {
+        const res = await fetch('./resources/fonts/DroidSansFallbackFull.ttf')
+        if (!res.ok) throw new Error('Failed to load system font file')
+        fontBuffer = await res.arrayBuffer()
+      } else {
+        const { getChineseFont } = await import('./db.js')
+        const fontEntry = await getChineseFont(fontKey)
+        if (!fontEntry) throw new Error('Font entry not found')
+        fontBuffer = fontEntry.ttf.buffer.slice(
+          fontEntry.ttf.byteOffset,
+          fontEntry.ttf.byteOffset + fontEntry.ttf.byteLength,
+        )
+      }
+      const fontFace = new FontFace(fontName, fontBuffer)
+      await fontFace.load()
+      registerFontFace(fontFace)
+      elements.chineseManagerPreview.style.fontFamily = `'${fontName}', sans-serif`
+    } catch {
+      elements.chineseManagerPreview.style.fontFamily = 'var(--font-sans)'
+    }
+  } catch (err) {
+    console.error('Failed to audit active Chinese font:', err)
+  }
+}
+
+async function handleChineseFontUpload(file: File) {
+  try {
+    showPinyinStatus('Reading Chinese font file...', true)
+    const buffer = await file.arrayBuffer()
+    const font = opentype.parse(buffer)
+
+    const displayName =
+      font.names.fontFamily?.en || file.name.replace(/\.[^/.]+$/, '')
+    const name = file.name.replace(/\.[^/.]+$/, '').replace(/\s+/g, '-')
+
+    const { saveChineseFont } = await import('./db.js')
+    await saveChineseFont({
+      name,
+      displayName,
+      ttf: new Uint8Array(buffer),
+      isSystem: false,
+      isPatched: false,
+      timestamp: Date.now(),
+    })
+
+    showPinyinStatus('Chinese font uploaded successfully!', false)
+    setTimeout(() => showPinyinStatus('', false), 3000)
+
+    state.managerSelectedChineseFont = name
+    await refreshChineseFontsDropdown(name)
+    updateUI()
+  } catch (err: any) {
+    console.error('Chinese font upload failed:', err)
+    showPinyinStatus(`Upload failed: ${err.message}`, false)
+  }
+}
+
+function setupChineseFontEvents() {
+  const zone = elements.chineseUploadZone
+  const fileInput = elements.chineseFileInput
+
+  zone.addEventListener('click', () => fileInput.click())
+
+  fileInput.addEventListener('change', () => {
+    const files = fileInput.files
+    if (files && files.length > 0) {
+      handleChineseFontUpload(files[0])
+    }
+  })
+
+  zone.addEventListener('dragover', (e) => {
+    e.preventDefault()
+    zone.classList.add('dragover')
+  })
+
+  zone.addEventListener('dragleave', () => {
+    zone.classList.remove('dragover')
+  })
+
+  zone.addEventListener('drop', (e) => {
+    e.preventDefault()
+    zone.classList.remove('dragover')
+    const files = e.dataTransfer?.files
+    if (files && files.length > 0 && files[0].name.endsWith('.ttf')) {
+      handleChineseFontUpload(files[0])
+    }
+  })
+
+  elements.managerChineseFontSelect.addEventListener('change', () => {
+    state.managerSelectedChineseFont = elements.managerChineseFontSelect.value
+    auditActiveChineseFont()
+  })
+
+  elements.btnUseChinese.addEventListener('click', () => {
+    state.chineseFont = state.managerSelectedChineseFont
+    localFontEngine = null
+    updateUI()
+    auditActiveChineseFont()
+  })
+
+  elements.btnDeleteChinese.addEventListener('click', async () => {
+    const fontKey = state.managerSelectedChineseFont
+    if (['droid-sans-fallback'].includes(fontKey)) return
+
+    if (confirm(`Are you sure you want to delete Chinese font "${fontKey}"?`)) {
+      try {
+        const { deleteChineseFont } = await import('./db.js')
+        await deleteChineseFont(fontKey)
+        if (chineseFontEngines[fontKey]) {
+          delete chineseFontEngines[fontKey]
+        }
+        if (state.chineseFont === fontKey) {
+          state.chineseFont = 'droid-sans-fallback'
+          localFontEngine = null
+        }
+        state.managerSelectedChineseFont = 'droid-sans-fallback'
+        await refreshChineseFontsDropdown()
+        updateUI()
+      } catch (err) {
+        console.error('Delete Chinese font failed:', err)
+      }
+    }
+  })
+}
+
+// --- AI glyph generation (zi2zi-style few-shot style transfer, MX-Font) ---
+//
+// The model takes a handful of glyphs from the ACTIVE Chinese font as style
+// references and a rendering of the wanted character from the bundled
+// reference font (Droid Sans Fallback) as content, and produces the character
+// in the active font's style. Used to fill missing simplified/traditional
+// halves of partial fonts; the deterministic alternative simply remaps the
+// codepoint to the existing counterpart glyph (exact style, variant shape).
+
+const zi2zi = new Zi2ziClient()
+let zi2ziStyleFontKey: string | null = null
+let lastGenerated: { char: string; ink: Float32Array } | null = null
+let batchCancelRequested = false
+
+let variantDataPromise: Promise<VariantData> | null = null
+function loadVariantData(): Promise<VariantData> {
+  if (!variantDataPromise) {
+    variantDataPromise = fetch('./data/variants.json').then((res) => {
+      if (!res.ok)
+        throw new Error(
+          'variants.json not found — run "npm run download:opencc"',
+        )
+      return res.json()
+    })
+  }
+  return variantDataPromise
+}
+
+function coveredCodepoints(font: any): Set<number> {
+  const map = font.tables?.cmap?.glyphIndexMap || {}
+  const covered = new Set<number>()
+  for (const key of Object.keys(map)) {
+    if (map[key] > 0) covered.add(Number(key))
+  }
+  return covered
+}
+
+function setZi2ziStatus(msg: string) {
+  state.zi2ziStatus = msg
+  if (elements.zi2ziStatusLbl) elements.zi2ziStatusLbl.textContent = msg
+}
+
+async function ensureZi2ziReady(styleFontKey: string): Promise<void> {
+  setZi2ziStatus('Loading MX-Font model (~24 MB, cached for offline use)…')
+  await zi2zi.init()
+  if (zi2ziStyleFontKey !== styleFontKey) {
+    const engine = await getChineseFontEngine(styleFontKey)
+    const { chars, tensors } = pickStyleRefs(engine.font, 6)
+    if (tensors.length === 0) {
+      throw new Error(
+        'The selected font has no usable CJK glyphs to use as style references',
+      )
+    }
+    setZi2ziStatus(`Encoding style references: ${chars.join(' ')}`)
+    await zi2zi.setStyle(tensors)
+    zi2ziStyleFontKey = styleFontKey
+  }
+  setZi2ziStatus('Model ready')
+}
+
+// Invalidate the cached style factors when the style-source font changes
+function invalidateZi2ziStyle(fontKey: string) {
+  if (zi2ziStyleFontKey === fontKey) zi2ziStyleFontKey = null
+}
+
+async function generateGlyphInk(char: string): Promise<Float32Array> {
+  const refEngine = await getChineseFontEngine('droid-sans-fallback')
+  const content = renderGlyphTensor(refEngine.font, char)
+  if (!content) {
+    throw new Error(`Reference font has no outline for '${char}'`)
+  }
+  return zi2zi.generate(content)
+}
+
+function renderInkToCanvas(ink: Float32Array, canvas: HTMLCanvasElement) {
+  const ctx = canvas.getContext('2d')!
+  const imgData = ctx.createImageData(MODEL_SIZE, MODEL_SIZE)
+  for (let i = 0; i < ink.length; i++) {
+    const val = Math.min(255, Math.max(0, Math.round(ink[i] * 255)))
+    imgData.data[i * 4] = val
+    imgData.data[i * 4 + 1] = val
+    imgData.data[i * 4 + 2] = val
+    imgData.data[i * 4 + 3] = 255
+  }
+  ctx.putImageData(imgData, 0, 0)
+}
+
+function retraceAndPreview() {
+  if (!lastGenerated) return
+  const svgPath = traceGrayscaleImage(
+    lastGenerated.ink,
+    MODEL_SIZE,
+    MODEL_SIZE,
+    state.zi2ziThreshold,
+    state.zi2ziSmoothing,
+  )
+  state.zi2ziGeneratedSvg = svgPath
+  state.zi2ziGeneratedChar = lastGenerated.char
+
+  const isCustomFont =
+    state.managerSelectedChineseFont !== 'droid-sans-fallback'
+  if (svgPath) {
+    elements.zi2ziSvgRender.innerHTML = `<path d="${svgPath}" />`
+    elements.btnZi2ziInject.disabled = !isCustomFont
+  } else {
+    elements.zi2ziSvgRender.innerHTML =
+      '<text x="14" y="72" fill="var(--text-secondary)" font-size="16">Empty</text>'
+    elements.btnZi2ziInject.disabled = true
+  }
+}
+
+// Finds the codepoint of an existing variant counterpart in the font, used to
+// anchor the metrics of injected glyphs (and as alias fill target).
+async function findCounterpartCp(
+  char: string,
+  font: any,
+): Promise<number | null> {
+  const data = await loadVariantData()
+  const covered = coveredCodepoints(font)
+  for (const candidates of [data.s2t[char], data.t2s[char]]) {
+    for (const cand of candidates || []) {
+      if (cand === char) continue
+      const cp = cand.codePointAt(0)!
+      if (covered.has(cp)) return cp
+    }
+  }
+  return null
+}
+
+async function updateChineseFontCoverageInfo(font: any) {
+  if (!elements.chineseFontCoverageLbl) return
+  try {
+    const data = await loadVariantData()
+    const covered = coveredCodepoints(font)
+    const summary = summarizeCoverage(covered, data)
+    elements.chineseFontCoverageLbl.textContent =
+      `${summary.simplifiedPresent} simplified / ${summary.traditionalPresent} traditional mapped chars; ` +
+      `fillable: ${summary.s2tFillable} simplified, ${summary.t2sFillable} traditional`
+  } catch {
+    elements.chineseFontCoverageLbl.textContent = 'variant data unavailable'
+  }
+}
+
+function setupZi2ziEvents() {
+  elements.rangeZi2ziThreshold.addEventListener('input', () => {
+    state.zi2ziThreshold = parseInt(elements.rangeZi2ziThreshold.value)
+    elements.valZi2ziThreshold.textContent = state.zi2ziThreshold.toString()
+    retraceAndPreview()
+  })
+
+  elements.rangeZi2ziSmoothing.addEventListener('input', () => {
+    state.zi2ziSmoothing = parseFloat(elements.rangeZi2ziSmoothing.value)
+    elements.valZi2ziSmoothing.textContent = state.zi2ziSmoothing.toFixed(1)
+    retraceAndPreview()
+  })
+
+  elements.zi2ziInputChar.addEventListener('input', () => {
+    elements.zi2ziSrcPreview.textContent = elements.zi2ziInputChar.value.trim()
+  })
+
+  elements.btnZi2ziGenerate.addEventListener('click', async () => {
+    const char = [...elements.zi2ziInputChar.value.trim()][0]
+    if (!char) return
+
+    elements.btnZi2ziGenerate.disabled = true
+    elements.btnZi2ziGenerate.innerHTML =
+      '<i class="fa-solid fa-circle-notch fa-spin"></i> Generating…'
+    try {
+      await ensureZi2ziReady(state.managerSelectedChineseFont)
+      const ink = await generateGlyphInk(char)
+      lastGenerated = { char, ink }
+      renderInkToCanvas(ink, elements.zi2ziCanvasOutput)
+      retraceAndPreview()
+      setZi2ziStatus(
+        `Generated '${char}' in the style of ${state.managerSelectedChineseFont}`,
+      )
+    } catch (err: any) {
+      console.error('zi2zi generation failed:', err)
+      setZi2ziStatus(`Generation failed: ${err.message}`)
+    } finally {
+      elements.btnZi2ziGenerate.disabled = false
+      elements.btnZi2ziGenerate.innerHTML =
+        '<i class="fa-solid fa-wand-magic-sparkles"></i> Generate Stylized Glyph'
+    }
+  })
+
+  elements.btnZi2ziInject.addEventListener('click', async () => {
+    const fontKey = state.managerSelectedChineseFont
+    if (fontKey === 'droid-sans-fallback') return
+    if (!state.zi2ziGeneratedChar || !state.zi2ziGeneratedSvg) return
+
+    try {
+      clearPinyinLogs()
+      showPinyinStatus(
+        `Injecting generated glyph '${state.zi2ziGeneratedChar}'…`,
+        true,
+      )
+
+      const { getChineseFont, saveChineseFont } = await import('./db.js')
+      const fontEntry = await getChineseFont(fontKey)
+      if (!fontEntry) throw new Error('Selected Chinese font not found.')
+
+      const engine = await getChineseFontEngine(fontKey)
+      const cp = state.zi2ziGeneratedChar.codePointAt(0)!
+      const targetCp = await findCounterpartCp(
+        state.zi2ziGeneratedChar,
+        engine.font,
+      )
+
+      const { patchChineseFontInBrowser } = await import('./compiler.js')
+      const updatedBytes = await patchChineseFontInBrowser(
+        fontEntry.ttf,
+        {
+          aliases: [],
+          glyphs: [{ cp, svgPath: state.zi2ziGeneratedSvg, targetCp }],
+        },
+        (msg) => showPinyinStatus(msg.trim(), true),
+      )
+
+      await saveChineseFont({
+        ...fontEntry,
+        ttf: updatedBytes,
+        isPatched: true,
+        timestamp: Date.now(),
+      })
+      delete chineseFontEngines[fontKey]
+      invalidateZi2ziStyle(fontKey)
+      if (state.chineseFont === fontKey) localFontEngine = null
+
+      showPinyinStatus(
+        `Glyph '${state.zi2ziGeneratedChar}' injected into ${fontKey}!`,
+        false,
+      )
+      setTimeout(() => showPinyinStatus('', false), 3000)
+      await refreshChineseFontsDropdown(fontKey)
+      updateUI()
+    } catch (err: any) {
+      console.error('Injection failed:', err)
+      showPinyinStatus(`Injection failed: ${err.message}`, false)
+    }
+  })
+
+  elements.btnZi2ziBatch.addEventListener('click', async () => {
+    if (elements.btnZi2ziBatch.dataset.running === '1') {
+      batchCancelRequested = true
+      elements.btnZi2ziBatch.innerHTML = 'Cancelling…'
+      return
+    }
+    const fontKey = state.managerSelectedChineseFont
+    if (fontKey === 'droid-sans-fallback') {
+      alert(
+        'Upload and select a custom Chinese font first — the bundled font already covers both scripts.',
+      )
+      return
+    }
+    await runBatchFill(fontKey)
+  })
+}
+
+async function runBatchFill(fontKey: string) {
+  const mode = elements.zi2ziModeSelect.value as 'ai' | 'alias'
+  const direction = elements.zi2ziDirectionSelect.value as
+    | FillDirection
+    | 'auto'
+
+  try {
+    const engine = await getChineseFontEngine(fontKey)
+    const data = await loadVariantData()
+    const covered = coveredCodepoints(engine.font)
+    const plan = planVariantFill(covered, data, direction)
+
+    if (plan.items.length === 0) {
+      setZi2ziStatus(
+        'No fillable characters found — the font may already cover both scripts.',
+      )
+      return
+    }
+
+    const dirLabel = plan.direction === 's2t' ? 'simplified' : 'traditional'
+    const modeLabel =
+      mode === 'ai'
+        ? 'AI style transfer (generated glyph shapes)'
+        : 'variant mapping (reuse counterpart glyphs, exact style)'
+    if (
+      !confirm(
+        `Fill ${plan.items.length} missing ${dirLabel} characters using ${modeLabel}?` +
+          (mode === 'ai'
+            ? `\n\nEstimated time: ~${Math.ceil((plan.items.length * 2) / 60)} min.`
+            : ''),
+      )
+    ) {
+      return
+    }
+
+    batchCancelRequested = false
+    elements.btnZi2ziBatch.dataset.running = '1'
+    elements.btnZi2ziBatch.innerHTML = '<i class="fa-solid fa-stop"></i> Cancel'
+    clearPinyinLogs()
+
+    const spec: import('./compiler.js').ChineseFontPatchSpec = {
+      aliases: [],
+      glyphs: [],
+    }
+    let aliasFallbacks = 0
+
+    if (mode === 'alias') {
+      spec.aliases = plan.items.map((item) => ({
+        cp: item.cp,
+        toCp: item.counterpartCp,
+      }))
+      setZi2ziStatus(
+        `Mapping ${spec.aliases.length} codepoints to counterpart glyphs…`,
+      )
+    } else {
+      await ensureZi2ziReady(fontKey)
+      for (let i = 0; i < plan.items.length; i++) {
+        if (batchCancelRequested) break
+        const item = plan.items[i]
+        setZi2ziStatus(
+          `[${i + 1}/${plan.items.length}] Generating '${item.char}' (from ${item.counterpartChar})…`,
+        )
+        updateBatchProgress(i + 1, plan.items.length)
+        try {
+          const ink = await generateGlyphInk(item.char)
+          const svgPath = traceGrayscaleImage(
+            ink,
+            MODEL_SIZE,
+            MODEL_SIZE,
+            state.zi2ziThreshold,
+            state.zi2ziSmoothing,
+          )
+          if (!svgPath) throw new Error('empty outline after vectorization')
+          spec.glyphs.push({
+            cp: item.cp,
+            svgPath,
+            targetCp: item.counterpartCp,
+          })
+          if (lastGenerated === null || i === plan.items.length - 1) {
+            lastGenerated = { char: item.char, ink }
+            renderInkToCanvas(ink, elements.zi2ziCanvasOutput)
+            retraceAndPreview()
+          }
+        } catch (err: any) {
+          console.warn(
+            `Generation failed for '${item.char}', falling back to variant mapping:`,
+            err,
+          )
+          spec.aliases.push({ cp: item.cp, toCp: item.counterpartCp })
+          aliasFallbacks++
+        }
+      }
+    }
+
+    const totalOps = spec.aliases.length + spec.glyphs.length
+    if (totalOps === 0) {
+      setZi2ziStatus('Batch cancelled — nothing to patch.')
+      return
+    }
+
+    setZi2ziStatus(`Patching font with ${totalOps} characters…`)
+    const { getChineseFont, saveChineseFont } = await import('./db.js')
+    const fontEntry = await getChineseFont(fontKey)
+    if (!fontEntry) throw new Error('Font entry not found')
+
+    const { patchChineseFontInBrowser } = await import('./compiler.js')
+    const updatedBytes = await patchChineseFontInBrowser(
+      fontEntry.ttf,
+      spec,
+      (msg) => showPinyinStatus(msg.trim(), true),
+    )
+
+    await saveChineseFont({
+      ...fontEntry,
+      ttf: updatedBytes,
+      isPatched: true,
+      timestamp: Date.now(),
+    })
+    delete chineseFontEngines[fontKey]
+    invalidateZi2ziStyle(fontKey)
+    if (state.chineseFont === fontKey) localFontEngine = null
+
+    const summaryParts = [
+      spec.glyphs.length ? `${spec.glyphs.length} AI-generated` : '',
+      spec.aliases.length ? `${spec.aliases.length} variant-mapped` : '',
+      plan.missingNoCounterpart.length
+        ? `${plan.missingNoCounterpart.length} skipped (no counterpart in font)`
+        : '',
+      aliasFallbacks ? `(${aliasFallbacks} fell back to mapping)` : '',
+    ].filter(Boolean)
+    setZi2ziStatus(
+      `${batchCancelRequested ? 'Cancelled — partial fill saved. ' : 'Done! '}${summaryParts.join(', ')}.`,
+    )
+    showPinyinStatus('', false)
+    await refreshChineseFontsDropdown(fontKey)
+    updateUI()
+  } catch (err: any) {
+    console.error('Batch fill failed:', err)
+    setZi2ziStatus(`Batch fill failed: ${err.message}`)
+  } finally {
+    batchCancelRequested = false
+    elements.btnZi2ziBatch.dataset.running = ''
+    elements.btnZi2ziBatch.innerHTML =
+      '<i class="fa-solid fa-fill-drip"></i> Fill Missing Characters'
+    updateBatchProgress(0, 0)
+  }
+}
+
+function updateBatchProgress(done: number, total: number) {
+  if (!elements.zi2ziProgressBar) return
+  if (total === 0) {
+    elements.zi2ziProgressBar.style.width = '0%'
+    elements.zi2ziProgressLbl.textContent = ''
+  } else {
+    elements.zi2ziProgressBar.style.width = `${Math.round((done / total) * 100)}%`
+    elements.zi2ziProgressLbl.textContent = `${done} / ${total}`
+  }
 }
 
 // Start initialization after all declarations are evaluated

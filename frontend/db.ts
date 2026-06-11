@@ -15,10 +15,20 @@ export interface PinyinFontEntry {
   timestamp: number
 }
 
+export interface ChineseFontEntry {
+  name: string
+  displayName: string
+  ttf: Uint8Array
+  isSystem: boolean
+  isPatched: boolean
+  timestamp: number
+}
+
 const DB_NAME = 'RubyFontCreatorDB'
 const STORE_NAME = 'fonts'
 const PINYIN_STORE_NAME = 'pinyin_fonts'
-const DB_VERSION = 2
+const CHINESE_STORE_NAME = 'chinese_fonts'
+const DB_VERSION = 3
 
 function getDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -32,6 +42,9 @@ function getDB(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(PINYIN_STORE_NAME)) {
         db.createObjectStore(PINYIN_STORE_NAME, { keyPath: 'name' })
+      }
+      if (!db.objectStoreNames.contains(CHINESE_STORE_NAME)) {
+        db.createObjectStore(CHINESE_STORE_NAME, { keyPath: 'name' })
       }
     }
   })
@@ -121,6 +134,52 @@ export async function deletePinyinFont(name: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(PINYIN_STORE_NAME, 'readwrite')
     const store = transaction.objectStore(PINYIN_STORE_NAME)
+    const request = store.delete(name)
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => resolve()
+  })
+}
+
+export async function saveChineseFont(font: ChineseFontEntry): Promise<void> {
+  const db = await getDB()
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(CHINESE_STORE_NAME, 'readwrite')
+    const store = transaction.objectStore(CHINESE_STORE_NAME)
+    const request = store.put(font)
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => resolve()
+  })
+}
+
+export async function getChineseFont(
+  name: string,
+): Promise<ChineseFontEntry | null> {
+  const db = await getDB()
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(CHINESE_STORE_NAME, 'readonly')
+    const store = transaction.objectStore(CHINESE_STORE_NAME)
+    const request = store.get(name)
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => resolve(request.result || null)
+  })
+}
+
+export async function listChineseFonts(): Promise<ChineseFontEntry[]> {
+  const db = await getDB()
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(CHINESE_STORE_NAME, 'readonly')
+    const store = transaction.objectStore(CHINESE_STORE_NAME)
+    const request = store.getAll()
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => resolve(request.result as ChineseFontEntry[])
+  })
+}
+
+export async function deleteChineseFont(name: string): Promise<void> {
+  const db = await getDB()
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(CHINESE_STORE_NAME, 'readwrite')
+    const store = transaction.objectStore(CHINESE_STORE_NAME)
     const request = store.delete(name)
     request.onerror = () => reject(request.error)
     request.onsuccess = () => resolve()

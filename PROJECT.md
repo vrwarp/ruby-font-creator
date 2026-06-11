@@ -84,6 +84,35 @@
   - `Uint8Array` (TTF font with GSUB tables)
   - `Uint8Array` (WOFF2 compressed font)
 
+## AI Glyph Generation (zi2zi-style missing-half fill)
+
+Fills missing simplified/traditional characters in a user-uploaded Chinese
+font, entirely client-side. Two modes:
+
+- **AI style transfer**: few-shot generation with **MX-Font**
+  (clovaai/mxfont, ICCV'21, MIT — forked in `vendor/mxfont/` with small
+  ONNX-export patches to `models/modules/cbam.py`). Style references are
+  glyphs rendered from the user's own font; content images come from the
+  bundled Droid Sans Fallback. Inference runs in a Web Worker via
+  onnxruntime-web (WASM, single-threaded), int8-quantized graphs
+  (`frontend/public/models/mxfont_{encoder,decoder}.int8.onnx`, ~24 MB,
+  committed). Output rasters are vectorized (`src/vectorizer.ts`, crack-
+  following tracer with hole/winding handling) and injected as TrueType
+  glyphs by fontTools in Pyodide (`frontend/py/patch_chinese_font.py`).
+- **Variant mapping**: deterministic cmap aliasing of missing codepoints to
+  existing counterpart glyphs (exact style, counterpart shape), driven by
+  OpenCC single-character tables (`frontend/public/data/variants.json`,
+  Apache-2.0, regenerate with `npm run download:opencc`; planning logic in
+  `src/variants.ts`).
+
+Model pipeline (offline, requires the `.venv-mxfont` Python env):
+
+1. `curl -L -o vendor/mxfont/generator.pth https://raw.githubusercontent.com/clovaai/mxfont/main/generator.pth`
+2. `.venv-mxfont/bin/python scripts/export-mxfont-onnx.py` — exports both
+   graphs, verifies ONNX/PyTorch parity, writes int8 variants.
+3. `.venv-mxfont/bin/python scripts/test-mxfont-quality.py [.int8]` — renders
+   comparison grids into `scratch/mxfont-quality/`.
+
 ## Code Layout
 
 - `frontend/`
@@ -91,9 +120,18 @@
   - `main.ts` - Client-side state manager and interface controller
   - `compiler.ts` - Browser-side font compiler and Pyodide bridge
   - `db.ts` - IndexedDB persistence layer
+  - `zi2zi-worker.ts` - Web Worker running MX-Font ONNX inference
+  - `zi2zi-client.ts` - Worker client + model-input glyph rasterization
+  - `py/patch_chinese_font.py` - fontTools patcher (Pyodide + CLI/tests)
   - `public/sw.js` - Service worker handling caching for offline capability
   - `public/manifest.json` - PWA web manifest
   - `public/pyodide/` - Vendored Pyodide runtime and Python wheels
+  - `public/models/` - MX-Font ONNX graphs (int8 committed)
+  - `public/data/variants.json` - OpenCC simplified↔traditional char tables
 - `src/`
   - `ruby.ts` - Shared/browser-side layout computations
   - `polyphonic.ts` - Font alternate mappings (simplified & traditional)
+  - `vectorizer.ts` - Raster→SVG outline tracer (holes, winding, smoothing)
+  - `variants.ts` - Variant-fill planning over OpenCC data
+- `vendor/mxfont/` - Forked MX-Font (NAVER, MIT) for ONNX export
+- `test/fixtures/trad-only.ttf` - Traditional-only Droid subset for tests
