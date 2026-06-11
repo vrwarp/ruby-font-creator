@@ -196,7 +196,13 @@ export class JitTrainer {
           styleEmb,
         ) as [JaxArray, LoraTree]
 
-        const [updates, newState] = baseSolver.update(grads, this.optState)
+        // optax's adamw chain includes addDecayedWeights, which requires the
+        // params argument even with weightDecay 0
+        const [updates, newState] = baseSolver.update(
+          grads,
+          this.optState,
+          tree.ref(this.lora),
+        )
         this.optState = newState
         const scaled: LoraTree = {}
         for (const [k, v] of Object.entries(updates as LoraTree)) {
