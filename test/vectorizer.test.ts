@@ -1,324 +1,270 @@
 import { describe, it, expect } from 'vitest'
-import { traceContours, traceGrayscaleImage } from '../src/vectorizer.js'
-import type { Point } from '../src/vectorizer.js'
+import {
+  traceContours,
+  traceGrayscaleImage,
+  shoelace,
+  type Point,
+} from '../src/vectorizer.js'
+import { flattenSvgPath } from '../frontend/compiler.js'
 
-/** Signed shoelace sum: sum((x_i * y_{i+1}) - (x_{i+1} * y_i)). */
-function shoelace(points: Point[]): number {
-  let sum = 0
-  for (let i = 0; i < points.length; i++) {
-    const a = points[i]
-    const b = points[(i + 1) % points.length]
-    sum += a.x * b.y - b.x * a.y
-  }
-  return sum
-}
+// Helpers -------------------------------------------------------------
 
-/** Splits an SVG path into its 'M ...' subpaths and parses every number. */
-function parseSubpaths(path: string): Point[][] {
-  const chunks = path.split('M').filter((c) => c.trim() !== '')
-  return chunks.map((chunk) => {
-    const nums = (chunk.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number)
-    expect(nums.length % 2).toBe(0)
-    const points: Point[] = []
-    for (let i = 0; i < nums.length; i += 2) {
-      points.push({ x: nums[i], y: nums[i + 1] })
-    }
-    return points
-  })
-}
-
-function vertexSet(points: Point[]): Set<string> {
-  return new Set(points.map((p) => `${p.x},${p.y}`))
-}
-
-function fillRect(
-  pixels: Uint8Array,
+function field(
   width: number,
+  height: number,
+  fill: (x: number, y: number) => number,
+): Float32Array {
+  const f = new Float32Array(width * height)
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      f[y * width + x] = fill(x, y)
+    }
+  }
+  return f
+}
+
+function binaryRect(
+  width: number,
+  height: number,
   x0: number,
   y0: number,
   x1: number,
   y1: number,
-  value: number,
-): void {
-  for (let y = y0; y <= y1; y++) {
-    for (let x = x0; x <= x1; x++) {
-      pixels[y * width + x] = value
-    }
+): Float32Array {
+  return field(width, height, (x, y) =>
+    x >= x0 && x <= x1 && y >= y0 && y <= y1 ? 1 : 0,
+  )
+}
+
+function pathLoops(d: string): Point[][] {
+  return flattenSvgPath(d)
+}
+
+function bbox(pts: Point[]) {
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  for (const p of pts) {
+    minX = Math.min(minX, p.x)
+    minY = Math.min(minY, p.y)
+    maxX = Math.max(maxX, p.x)
+    maxY = Math.max(maxY, p.y)
   }
+  return { minX, minY, maxX, maxY }
 }
 
-/** 8x8 ring: ink rectangle (1,1)-(6,6) with a hole at (3,3)-(4,4). */
-function ringImage(): { pixels: Uint8Array; width: number; height: number } {
-  const width = 8
-  const height = 8
-  const pixels = new Uint8Array(width * height)
-  fillRect(pixels, width, 1, 1, 6, 6, 255)
-  fillRect(pixels, width, 3, 3, 4, 4, 0)
-  return { pixels, width, height }
-}
+// traceContours (marching squares) -------------------------------------
 
-/** Asserts every step of a raw loop is a unit-length axis move (incl. wrap). */
-function expectUnitClosedLoop(loop: Point[]): void {
-  for (let i = 0; i < loop.length; i++) {
-    const a = loop[i]
-    const b = loop[(i + 1) % loop.length]
-    expect(Math.abs(b.x - a.x) + Math.abs(b.y - a.y)).toBe(1)
-  }
-}
-
-describe('traceContours (raw crack-following loops)', () => {
-  it('traces a single pixel as one clockwise unit square', () => {
-    const binary = new Uint8Array(9)
-    binary[1 * 3 + 1] = 1 // pixel (1,1) in a 3x3 grid
-    const loops = traceContours(binary, 3, 3)
-    expect(loops).toHaveLength(1)
-    expect(loops[0]).toEqual([
-      { x: 1, y: 1 },
-      { x: 2, y: 1 },
-      { x: 2, y: 2 },
-      { x: 1, y: 2 },
-    ])
-    expect(shoelace(loops[0])).toBe(2) // area 1, screen-clockwise
+describe('traceContours - sub-pixel marching squares', () => {
+  it('traces a binary square with the iso line halfway between pixels', () => {
+    // ink at pixel centers (3..6)x(3..6); iso 0.5 -> boundary at 2.5 / 6.5
+    const f = binaryRect(10, 10, 3, 3, 6, 6)
+    const loops = traceContours(f, 10, 10, 0.5)
+    expect(loops.length).toBe(1)
+    const area = shoelace(loops[0])
+    // 4x4 square minus four 45-degree corner chamfers of area 0.125 each
+    expect(area).toBeCloseTo(15.5, 5)
+    const b = bbox(loops[0])
+    expect(b.minX).toBeCloseTo(2.5, 5)
+    expect(b.maxX).toBeCloseTo(6.5, 5)
+    expect(b.minY).toBeCloseTo(2.5, 5)
+    expect(b.maxY).toBeCloseTo(6.5, 5)
   })
 
-  it('traces outer and hole loops of a ring with opposite orientations', () => {
-    const { pixels, width, height } = ringImage()
-    const binary = Uint8Array.from(pixels, (v) => (v >= 128 ? 1 : 0))
-    const loops = traceContours(binary, width, height)
-    expect(loops).toHaveLength(2)
-    for (const loop of loops) expectUnitClosedLoop(loop)
-
-    const outer = loops.find((l) => shoelace(l) > 0)!
-    const hole = loops.find((l) => shoelace(l) < 0)!
-    expect(outer).toBeDefined()
-    expect(hole).toBeDefined()
-    // Outer: 6x6 pixel square -> 24 crack steps, shoelace 2 * area 36.
-    expect(outer).toHaveLength(24)
-    expect(shoelace(outer)).toBe(72)
-    // Hole: 2x2 pixel square -> 8 crack steps, shoelace -2 * area 4.
-    expect(hole).toHaveLength(8)
-    expect(shoelace(hole)).toBe(-8)
-    expect(vertexSet(hole)).toContain('3,3')
-    expect(vertexSet(hole)).toContain('5,5')
+  it('emits holes with opposite winding', () => {
+    // ink (1..6)^2 with a 2x2 hole at (3..4)^2
+    const f = field(8, 8, (x, y) => {
+      const ink = x >= 1 && x <= 6 && y >= 1 && y <= 6
+      const hole = x >= 3 && x <= 4 && y >= 3 && y <= 4
+      return ink && !hole ? 1 : 0
+    })
+    const loops = traceContours(f, 8, 8, 0.5)
+    expect(loops.length).toBe(2)
+    const areas = loops.map(shoelace).sort((a, b) => b - a)
+    expect(areas[0]).toBeCloseTo(35.5, 5) // 6x6 outer minus chamfers
+    expect(areas[1]).toBeCloseTo(-3.5, 5) // 2x2 hole minus chamfers, negative
   })
 
-  it('closes loops along the bitmap border (out-of-bounds = background)', () => {
-    const binary = new Uint8Array(16).fill(1) // fully inked 4x4 grid
-    const loops = traceContours(binary, 4, 4)
-    expect(loops).toHaveLength(1)
-    expectUnitClosedLoop(loops[0])
-    expect(loops[0]).toHaveLength(16) // perimeter cracks of a 4x4 square
-    expect(shoelace(loops[0])).toBe(32) // 2 * area 16, positive
-  })
-
-  it('keeps diagonally touching pixels positively oriented with total area 2', () => {
-    // Pixels (1,1) and (2,2) share only a corner: whatever the connectivity
-    // convention, every emitted loop must be an outer (positive) loop and
-    // the shoelace sums must add up to 2 * total ink area.
-    const binary = new Uint8Array(16)
-    binary[1 * 4 + 1] = 1
-    binary[2 * 4 + 2] = 1
-    const loops = traceContours(binary, 4, 4)
-    let total = 0
-    for (const loop of loops) {
-      expectUnitClosedLoop(loop)
-      expect(shoelace(loop)).toBeGreaterThan(0)
-      total += shoelace(loop)
+  it('finds the iso crossing at the interpolated sub-pixel position', () => {
+    // columns: x<=4 -> 1.0, x=5 -> 0.6, x>=6 -> 0.0
+    const f = field(12, 12, (x) => (x <= 4 ? 1 : x === 5 ? 0.6 : 0))
+    const loops = traceContours(f, 12, 12, 0.5)
+    expect(loops.length).toBe(1)
+    // crossing between x=5 (0.6) and x=6 (0.0): t = (0.5-0.6)/(0-0.6) = 1/6
+    const expectedX = 5 + 1 / 6
+    // interior points of the vertical boundary (away from border closure)
+    const rightEdgeXs = loops[0]
+      .filter((p) => p.x > 4.5 && p.y > 2 && p.y < 9)
+      .map((p) => p.x)
+    expect(rightEdgeXs.length).toBeGreaterThan(0)
+    for (const x of rightEdgeXs) {
+      expect(x).toBeCloseTo(expectedX, 5)
     }
-    expect(total).toBe(4) // 2 * (2 ink pixels)
   })
 
-  it('satisfies sum(shoelace) = 2 * inkArea on a pseudo-random grid', () => {
-    const width = 25
-    const height = 25
-    const binary = new Uint8Array(width * height)
-    let seed = 123456789
-    let inkCount = 0
-    for (let i = 0; i < binary.length; i++) {
-      seed = (seed * 1103515245 + 12345) & 0x7fffffff
-      if (seed % 100 < 45) {
-        binary[i] = 1
-        inkCount++
-      }
+  it('closes contours for ink touching the bitmap border', () => {
+    const f = field(10, 10, (x) => (x <= 2 ? 1 : 0))
+    const loops = traceContours(f, 10, 10, 0.5)
+    expect(loops.length).toBe(1)
+    expect(shoelace(loops[0])).toBeGreaterThan(0)
+    const b = bbox(loops[0])
+    // the zero padding closes the loop just outside the bitmap edge
+    expect(b.minX).toBeLessThan(0)
+    expect(b.maxX).toBeCloseTo(2.5, 5)
+  })
+
+  it('handles nested structures (回) with alternating winding', () => {
+    // outer ring (1..10)^2 minus (3..8)^2, inner block (5..6)^2 in 12x12
+    const f = field(12, 12, (x, y) => {
+      const outer = x >= 1 && x <= 10 && y >= 1 && y <= 10
+      const ring = x >= 3 && x <= 8 && y >= 3 && y <= 8
+      const inner = x >= 5 && x <= 6 && y >= 5 && y <= 6
+      return (outer && !ring) || inner ? 1 : 0
+    })
+    const loops = traceContours(f, 12, 12, 0.5)
+    expect(loops.length).toBe(3)
+    const areas = loops.map(shoelace).sort((a, b) => b - a)
+    expect(areas[0]).toBeGreaterThan(0) // outermost boundary
+    expect(areas[1]).toBeGreaterThan(0) // inner block
+    expect(areas[2]).toBeLessThan(0) // ring hole
+  })
+
+  it('approximates a smooth disk with sub-pixel accuracy', () => {
+    const f = field(64, 64, (x, y) => {
+      const r = Math.hypot(x - 32, y - 32)
+      return Math.min(1, Math.max(0, 1 - (r - 16) / 4)) // 0.5 at r=18
+    })
+    const loops = traceContours(f, 64, 64, 0.5)
+    expect(loops.length).toBe(1)
+    const area = shoelace(loops[0])
+    const ideal = Math.PI * 18 * 18
+    expect(Math.abs(area - ideal) / ideal).toBeLessThan(0.01)
+    for (const p of loops[0]) {
+      const r = Math.hypot(p.x - 32, p.y - 32)
+      expect(Math.abs(r - 18)).toBeLessThan(0.25)
     }
-    const loops = traceContours(binary, width, height)
-    expect(loops.length).toBeGreaterThan(0)
-    let total = 0
-    for (const loop of loops) {
-      expect(loop.length).toBeGreaterThanOrEqual(4)
-      expectUnitClosedLoop(loop)
-      total += shoelace(loop)
-    }
-    // Outer loops add their area, holes subtract theirs: the signed total
-    // must equal the inked area exactly (shoelace counts it twice).
-    expect(total).toBe(2 * inkCount)
   })
 })
 
+// traceGrayscaleImage (full pipeline) -----------------------------------
+
 describe('traceGrayscaleImage', () => {
-  it('reduces a 4x4 solid square to exactly its four corners', () => {
-    const width = 10
-    const height = 10
-    const pixels = new Uint8Array(width * height)
-    fillRect(pixels, width, 3, 3, 6, 6, 255)
-
-    const path = traceGrayscaleImage(pixels, width, height, 128, 0)
-    const contours = parseSubpaths(path)
-    expect(contours).toHaveLength(1)
-    expect(path.endsWith('Z')).toBe(true)
-    expect(path).not.toContain('C')
-
-    const square = contours[0]
-    expect(square).toHaveLength(4)
-    expect(vertexSet(square)).toEqual(new Set(['3,3', '7,3', '7,7', '3,7']))
-    expect(shoelace(square)).toBe(32) // 2 * area 16, positive = outer
+  it('returns an empty string for an empty field', () => {
+    expect(traceGrayscaleImage(new Float32Array(64), 8, 8, 128, 1)).toBe('')
   })
 
-  it('emits two opposite-winding contours for a ring with a hole', () => {
-    const { pixels, width, height } = ringImage()
-    const path = traceGrayscaleImage(pixels, width, height, 128, 0)
-    const contours = parseSubpaths(path)
-    expect(contours).toHaveLength(2)
-
-    const outer = contours.find((c) => shoelace(c) > 0)!
-    const hole = contours.find((c) => shoelace(c) < 0)!
-    expect(outer).toBeDefined()
-    expect(hole).toBeDefined()
-
-    expect(outer).toHaveLength(4)
-    expect(vertexSet(outer)).toEqual(new Set(['1,1', '7,1', '7,7', '1,7']))
-    expect(shoelace(outer)).toBe(72) // 2 * area 36
-
-    expect(hole).toHaveLength(4)
-    expect(vertexSet(hole)).toEqual(new Set(['3,3', '5,3', '5,5', '3,5']))
-    expect(shoelace(hole)).toBe(-8) // 2 * area 4, opposite winding
+  it('drops single-pixel speckle noise', () => {
+    const f = field(10, 10, (x, y) => (x === 5 && y === 5 ? 1 : 0))
+    expect(traceGrayscaleImage(f, 10, 10, 128, 1)).toBe('')
   })
 
-  it('closes a full-height stripe touching the bitmap border', () => {
-    const width = 10
-    const height = 10
-    const pixels = new Uint8Array(width * height)
-    fillRect(pixels, width, 0, 0, 2, height - 1, 255)
-
-    const path = traceGrayscaleImage(pixels, width, height, 128, 0)
-    expect(path.endsWith('Z')).toBe(true)
-    const contours = parseSubpaths(path)
-    expect(contours).toHaveLength(1)
-
-    const stripe = contours[0]
-    expect(stripe).toHaveLength(4)
-    expect(vertexSet(stripe)).toEqual(new Set(['0,0', '3,0', '3,10', '0,10']))
-    expect(shoelace(stripe)).toBe(60) // 2 * area 30, positive
-
-    const xs = stripe.map((p) => p.x)
-    const ys = stripe.map((p) => p.y)
-    expect(Math.min(...xs)).toBe(0)
-    expect(Math.max(...xs)).toBe(3)
-    expect(Math.min(...ys)).toBe(0)
-    expect(Math.max(...ys)).toBe(10)
+  it('produces identical output for equivalent Float32 and Uint8 inputs', () => {
+    const f32 = binaryRect(16, 16, 4, 4, 11, 11)
+    const u8 = new Uint8Array(f32.length)
+    for (let i = 0; i < f32.length; i++) u8[i] = f32[i] * 255
+    const a = traceGrayscaleImage(f32, 16, 16, 128, 1)
+    const b = traceGrayscaleImage(u8, 16, 16, 128, 1)
+    expect(a).toBe(b)
+    expect(a.length).toBeGreaterThan(0)
   })
 
-  it('returns an empty string for an empty grid', () => {
-    expect(traceGrayscaleImage(new Uint8Array(64), 8, 8, 128, 0)).toBe('')
-    expect(traceGrayscaleImage(new Float32Array(64), 8, 8, 128, 0)).toBe('')
-    expect(traceGrayscaleImage(new Uint8Array(0), 0, 0, 128, 0)).toBe('')
-  })
-
-  it('treats a pixel as ink when its scaled value equals the threshold', () => {
-    const pixels = new Uint8Array(16)
-    fillRect(pixels, 4, 1, 1, 2, 2, 128)
-    const at = traceGrayscaleImage(pixels, 4, 4, 128, 0)
-    expect(parseSubpaths(at)).toHaveLength(1)
-    expect(vertexSet(parseSubpaths(at)[0])).toEqual(
-      new Set(['1,1', '3,1', '3,3', '1,3']),
+  it('emits straight L segments for straight stroke edges', () => {
+    const d = traceGrayscaleImage(
+      binaryRect(20, 20, 4, 4, 15, 15),
+      20,
+      20,
+      128,
+      1,
     )
-    fillRect(pixels, 4, 1, 1, 2, 2, 127) // just below: no ink at all
-    expect(traceGrayscaleImage(pixels, 4, 4, 128, 0)).toBe('')
+    expect(d.startsWith('M')).toBe(true)
+    expect(d.endsWith('Z')).toBe(true)
+    // a clean rectangle fits compactly: straight sides plus at most a couple
+    // of short curves absorbing the marching-squares corner chamfers
+    const commands = (d.match(/[LC]/g) || []).length
+    expect((d.match(/L/g) || []).length).toBeGreaterThanOrEqual(2)
+    expect(commands).toBeLessThanOrEqual(12)
+    const loops = pathLoops(d)
+    expect(loops.length).toBe(1)
+    expect(shoelace(loops[0])).toBeGreaterThan(0)
   })
 
-  it('produces identical output for Float32Array input scaled to [0,1]', () => {
-    const { pixels, width, height } = ringImage()
-    // Mix in non-saturated gray levels on both sides of the threshold.
-    pixels[1 * width + 1] = 200
-    pixels[6 * width + 6] = 131
-    pixels[0] = 60
-    pixels[7 * width + 7] = 100
-
-    const floats = Float32Array.from(pixels, (v) => v / 255)
-    const fromBytes = traceGrayscaleImage(pixels, width, height, 128, 0)
-    const fromFloats = traceGrayscaleImage(floats, width, height, 128, 0)
-    expect(fromBytes).not.toBe('')
-    expect(fromFloats).toBe(fromBytes)
-
-    // Smoothing path must match too.
-    expect(traceGrayscaleImage(floats, width, height, 128, 1)).toBe(
-      traceGrayscaleImage(pixels, width, height, 128, 1),
-    )
-  })
-
-  it('emits valid closed cubic Bezier contours when smoothing is enabled', () => {
-    const { pixels, width, height } = ringImage()
-    const straight = traceGrayscaleImage(pixels, width, height, 128, 0)
-    const smooth = traceGrayscaleImage(pixels, width, height, 128, 1.0)
-
-    expect(smooth.startsWith('M ')).toBe(true)
-    expect(smooth).toContain('C')
-    expect(smooth).not.toContain('L')
-    expect(smooth.endsWith('Z')).toBe(true)
-
-    // Same number of contours as the unsmoothed render.
-    const countM = (s: string): number => (s.match(/M/g) ?? []).length
-    expect(countM(smooth)).toBe(countM(straight))
-
-    // Every number parses finite, and each subpath has a complete set of
-    // cubic segments (M pair + 3 pairs per C) that ends exactly on its
-    // starting point before the Z.
-    for (const chunk of smooth.split('M').filter((c) => c.trim() !== '')) {
-      const nums = (chunk.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number)
-      expect(nums.length).toBeGreaterThan(0)
-      expect(nums.every(Number.isFinite)).toBe(true)
-      expect((nums.length - 2) % 6).toBe(0)
-      expect(nums[nums.length - 2]).toBe(nums[0])
-      expect(nums[nums.length - 1]).toBe(nums[1])
+  it('keeps detected corners sharp under smoothing', () => {
+    // L-shaped region with a concave corner at (8.5, 10.5)
+    const f = field(20, 20, (x, y) => {
+      const vertical = x >= 3 && x <= 8 && y >= 3 && y <= 16
+      const horizontal = x >= 3 && x <= 16 && y >= 11 && y <= 16
+      return vertical || horizontal ? 1 : 0
+    })
+    const d = traceGrayscaleImage(f, 20, 20, 128, 1.5)
+    const loops = pathLoops(d)
+    expect(loops.length).toBe(1)
+    let best = Infinity
+    for (const p of loops[0]) {
+      best = Math.min(best, Math.hypot(p.x - 8.5, p.y - 10.5))
     }
+    expect(best).toBeLessThan(0.5)
   })
 
-  it('uses default smoothing of 1.0 and straight lines below 0.1', () => {
-    const { pixels, width, height } = ringImage()
-    expect(traceGrayscaleImage(pixels, width, height, 128)).toContain('C')
-    const faint = traceGrayscaleImage(pixels, width, height, 128, 0.05)
-    expect(faint).toContain('L')
-    expect(faint).not.toContain('C')
+  it('respects the threshold as a sub-pixel iso level', () => {
+    // horizontal ramp from 1.0 down to 0.0 across columns
+    const f = field(16, 16, (x) => Math.min(1, Math.max(0, (10 - x) / 5)))
+    const lowIso = pathLoops(traceGrayscaleImage(f, 16, 16, 64, 0))
+    const highIso = pathLoops(traceGrayscaleImage(f, 16, 16, 192, 0))
+    const wLow = bbox(lowIso[0]).maxX
+    const wHigh = bbox(highIso[0]).maxX
+    // lower iso -> contour reaches further into the faded edge
+    expect(wLow).toBeGreaterThan(wHigh + 1.5)
   })
 
-  it('traces a 回-like glyph as four contours with alternating winding', () => {
-    const width = 12
-    const height = 12
-    const pixels = new Uint8Array(width * height)
-    fillRect(pixels, width, 1, 1, 10, 10, 255) // outer ring, outside
-    fillRect(pixels, width, 3, 3, 8, 8, 0) // outer ring, hole
-    fillRect(pixels, width, 4, 4, 7, 7, 255) // inner ring, outside
-    fillRect(pixels, width, 5, 5, 6, 6, 0) // inner ring, hole
+  it('reconstructs a smooth disk faithfully and compactly', () => {
+    const f = field(64, 64, (x, y) => {
+      const r = Math.hypot(x - 32, y - 32)
+      return Math.min(1, Math.max(0, 1 - (r - 16) / 4))
+    })
+    const d = traceGrayscaleImage(f, 64, 64, 128, 1)
+    expect(d).toContain('C')
+    const loops = pathLoops(d)
+    expect(loops.length).toBe(1)
+    for (const p of loops[0]) {
+      const r = Math.hypot(p.x - 32, p.y - 32)
+      expect(Math.abs(r - 18)).toBeLessThan(0.45)
+    }
+    // compact: a circle needs few fitted segments, not hundreds of points
+    expect((d.match(/C/g) || []).length).toBeLessThan(24)
+  })
 
-    const path = traceGrayscaleImage(pixels, width, height, 128, 0)
-    const contours = parseSubpaths(path)
-    expect(contours).toHaveLength(4)
+  it('emits polygons only when smoothing < 0.1', () => {
+    const f = binaryRect(16, 16, 4, 4, 11, 11)
+    const d = traceGrayscaleImage(f, 16, 16, 128, 0)
+    expect(d).toContain('L')
+    expect(d).not.toContain('C')
+    expect(d.endsWith('Z')).toBe(true)
+  })
 
-    // Largest to smallest: outer/hole/outer/hole with alternating signs and
-    // exact areas (shoelace = +-2 * area).
-    const sums = contours
-      .map((c) => shoelace(c))
-      .sort((a, b) => Math.abs(b) - Math.abs(a))
-    expect(sums).toEqual([200, -72, 32, -8])
+  it('preserves winding through the full pipeline (ring with hole)', () => {
+    const f = field(16, 16, (x, y) => {
+      const ink = x >= 2 && x <= 13 && y >= 2 && y <= 13
+      const hole = x >= 6 && x <= 9 && y >= 6 && y <= 9
+      return ink && !hole ? 1 : 0
+    })
+    const d = traceGrayscaleImage(f, 16, 16, 128, 1)
+    const loops = pathLoops(d)
+    expect(loops.length).toBe(2)
+    const areas = loops.map(shoelace).sort((a, b) => b - a)
+    expect(areas[0]).toBeGreaterThan(0)
+    expect(areas[1]).toBeLessThan(0)
+  })
 
-    const byArea = contours
-      .slice()
-      .sort((a, b) => Math.abs(shoelace(b)) - Math.abs(shoelace(a)))
-    expect(vertexSet(byArea[0])).toEqual(
-      new Set(['1,1', '11,1', '11,11', '1,11']),
+  it('produces finite, parseable numbers throughout', () => {
+    const f = field(32, 32, (x, y) =>
+      Math.max(0, Math.sin(x / 3) * Math.cos(y / 4)),
     )
-    expect(vertexSet(byArea[1])).toEqual(new Set(['3,3', '9,3', '9,9', '3,9']))
-    expect(vertexSet(byArea[2])).toEqual(new Set(['4,4', '8,4', '8,8', '4,8']))
-    expect(vertexSet(byArea[3])).toEqual(new Set(['5,5', '7,5', '7,7', '5,7']))
+    const d = traceGrayscaleImage(f, 32, 32, 100, 1)
+    const nums = d.match(/-?\d+\.?\d*/g) || []
+    expect(nums.length).toBeGreaterThan(0)
+    for (const n of nums) {
+      expect(Number.isFinite(parseFloat(n))).toBe(true)
+    }
   })
 })
