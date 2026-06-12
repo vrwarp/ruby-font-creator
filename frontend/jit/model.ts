@@ -75,12 +75,14 @@ const f = (frozen: Frozen, name: string): JaxArray => {
 }
 
 // y = x @ W^T + b, with optional LoRA delta (x @ A^T) @ B^T * (alpha/r).
-// Consumes x; W/b/A/B are refs.
+// Consumes x; W/b/A/B/gain are refs. gain is a traced [1] scalar that scales
+// the LoRA delta at inference (structure-anchor dial / early-step muting)
+// without recompiling per value.
 function linear(
   x: JaxArray,
   w: JaxArray,
   b: JaxArray | null,
-  lora?: { a: JaxArray; b: JaxArray; scale: number },
+  lora?: { a: JaxArray; b: JaxArray; scale: number; gain?: JaxArray },
 ): JaxArray {
   const xr = lora ? x.ref : x
   let y = np.matmul(x, np.transpose(w))
@@ -89,6 +91,7 @@ function linear(
     const mid = np.matmul(xr, np.transpose(lora.a))
     let delta = np.matmul(mid, np.transpose(lora.b))
     if (lora.scale !== 1) delta = np.multiply(delta, lora.scale)
+    if (lora.gain) delta = np.multiply(delta, lora.gain)
     y = np.add(y, delta)
   }
   return y
@@ -142,12 +145,14 @@ function silu(x: JaxArray): JaxArray {
 
 export interface ModelApi {
   config: JitConfig
-  // x [B,3,S,S], t [B], cond — all consumed. Returns x_pred [B,3,S,S].
+  // x [B,3,S,S], t [B], cond — all consumed. loraGain is an optional traced
+  // [1] scalar (consumed) scaling every LoRA delta. Returns x_pred [B,3,S,S].
   forward(
     x: JaxArray,
     t: JaxArray,
     cond: CondVectors,
     lora: LoraTree | null,
+    loraGain?: JaxArray,
   ): JaxArray
   // flow-matching loss with explicit t [B] and noise e [B,3,S,S] (consumed).
   loss(
@@ -183,12 +188,13 @@ export function buildModel(frozen: Frozen, config: JitConfig): ModelApi {
     lora: LoraTree | null,
     block: number,
     target: string,
-  ): { a: JaxArray; b: JaxArray; scale: number } | undefined {
+    gain?: JaxArray,
+  ): { a: JaxArray; b: JaxArray; scale: number; gain?: JaxArray } | undefined {
     if (!lora) return undefined
     const a = lora[`blocks.${block}.${target}.A`]
     const b = lora[`blocks.${block}.${target}.B`]
     if (!a || !b) return undefined
-    return { a: a.ref, b: b.ref, scale: loraScale }
+    return { a: a.ref, b: b.ref, scale: loraScale, gain: gain?.ref }
   }
 
   // [B,3,S,S] -> [B, N, hidden] (+ fixed pos embed). Consumes x.
@@ -227,7 +233,8 @@ export function buildModel(frozen: Frozen, config: JitConfig): ModelApi {
     return linear(h, f(frozen, 't_embedder.w2'), f(frozen, 't_embedder.b2'))
   }
 
-  // One transformer block. Consumes x; c is ref'd by caller per use.
+  // One transformer block. Consumes x; c is ref'd by caller per use; gain
+  // (if present) is ref'd per LoRA site.
   function block(
     x: JaxArray,
     c: JaxArray,
@@ -235,6 +242,7 @@ export function buildModel(frozen: Frozen, config: JitConfig): ModelApi {
     ropeCos: JaxArray,
     ropeSin: JaxArray,
     lora: LoraTree | null,
+    gain?: JaxArray,
   ): JaxArray {
     const B = x.aval.shape[0]
     const N = x.aval.shape[1]
@@ -258,7 +266,7 @@ export function buildModel(frozen: Frozen, config: JitConfig): ModelApi {
       h,
       f(frozen, pfx + 'qkv.weight'),
       f(frozen, pfx + 'qkv.bias'),
-      loraFor(lora, i, 'qkv'),
+      loraFor(lora, i, 'qkv', gain),
     )
     qkv = qkv.reshape([B, N, 3, C.numHeads, C.headDim])
     qkv = np.transpose(qkv, [2, 0, 3, 1, 4]) // [3, B, H, N, hd]
@@ -281,7 +289,7 @@ export function buildModel(frozen: Frozen, config: JitConfig): ModelApi {
       out,
       f(frozen, pfx + 'proj.weight'),
       f(frozen, pfx + 'proj.bias'),
-      loraFor(lora, i, 'proj'),
+      loraFor(lora, i, 'proj', gain),
     )
     const x1 = np.add(x, np.multiply(np.expandDims(gateMsa, 1), out))
 
@@ -292,7 +300,7 @@ export function buildModel(frozen: Frozen, config: JitConfig): ModelApi {
       m,
       f(frozen, pfx + 'w12.weight'),
       f(frozen, pfx + 'w12.bias'),
-      loraFor(lora, i, 'w12'),
+      loraFor(lora, i, 'w12', gain),
     )
     const [g1, g2] = np.split(w12, 2, -1)
     const hidden = np.multiply(silu(g1), g2)
@@ -300,7 +308,7 @@ export function buildModel(frozen: Frozen, config: JitConfig): ModelApi {
       hidden,
       f(frozen, pfx + 'w3.weight'),
       f(frozen, pfx + 'w3.bias'),
-      loraFor(lora, i, 'w3'),
+      loraFor(lora, i, 'w3', gain),
     )
     return np.add(x1, np.multiply(np.expandDims(gateMlp, 1), mlpOut))
   }
@@ -310,6 +318,7 @@ export function buildModel(frozen: Frozen, config: JitConfig): ModelApi {
     t: JaxArray,
     cond: CondVectors,
     lora: LoraTree | null,
+    loraGain?: JaxArray,
   ): JaxArray {
     const c = np.add(tEmbed(t), cond.yEmb)
 
@@ -342,8 +351,11 @@ export function buildModel(frozen: Frozen, config: JitConfig): ModelApi {
         f(frozen, ctxMode ? 'rope_ctx.cos' : 'rope.cos'),
         f(frozen, ctxMode ? 'rope_ctx.sin' : 'rope.sin'),
         lora,
+        loraGain,
       )
     }
+    // each block took gain refs; release the caller's handle
+    loraGain?.dispose()
     // drop the in-context tokens
     const tokens = np.split(h, [C.inContextLen], 1)
     tokens[0].dispose()

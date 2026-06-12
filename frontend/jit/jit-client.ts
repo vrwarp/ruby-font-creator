@@ -15,9 +15,14 @@ export interface JitTrainProgress {
 
 export interface JitPrepareSample {
   image: Float32Array // target glyph [3*256*256] CHW [-1,1]
-  styleImage: Float32Array // reference grid [3*128*128]
+  styleImage: Float32Array // own-glyph style ref [3*128*128]
   contentImage: Float32Array // content-font glyph [3*256*256]
   fontIndex: number
+  // prior-preservation row: content-font target with null style/font
+  prior?: boolean
+  // pool-dedupe key (the codepoint): augmented variants of one char share a
+  // single style-pool entry in the worker
+  styleKey?: number
 }
 
 export interface JitTrainOpts {
@@ -27,6 +32,18 @@ export interface JitTrainOpts {
   warmupEpochs: number
   minLr: number
   seed: number
+  accumSteps?: number
+  beta2?: number
+  fontDropProb?: number
+  tailAverage?: boolean
+}
+
+// inference-time structure anchors (docs/style-transfer-research.md Track A)
+export interface JitAnchorOpts {
+  tStart?: number // SDEdit init strength: layout from the content rendering
+  loraScale?: number // global LoRA delta multiplier
+  loraTStart?: number // mute LoRA below this t (base model decides layout)
+  contentCfg?: number // decoupled content guidance weight (2x forwards/step)
 }
 
 export class JitClient {
@@ -37,7 +54,7 @@ export class JitClient {
     { resolve: (v: any) => void; reject: (e: Error) => void }
   >()
   onTrainProgress: ((p: JitTrainProgress) => void) | null = null
-  onPrepareProgress: ((done: number, total: number) => void) | null = null
+  onPrepareProgress: ((done: number) => void) | null = null
 
   private ensure(): Worker {
     if (this.worker) return this.worker
@@ -51,7 +68,7 @@ export class JitClient {
         return
       }
       if (type === 'prepare-progress') {
-        this.onPrepareProgress?.(e.data.done, e.data.total)
+        this.onPrepareProgress?.(e.data.done)
         return
       }
       const req = this.pending.get(id)
@@ -83,12 +100,15 @@ export class JitClient {
     return this.request({ type: 'init', assetBase })
   }
 
-  prepare(
+  prepareBegin(nullFontIndex: number): Promise<void> {
+    return this.request({ type: 'prepare-begin', nullFontIndex })
+  }
+
+  prepareAdd(
     samples: JitPrepareSample[],
-    nullFontIndex: number,
-  ): Promise<{ prepared: number; aborted: boolean }> {
+  ): Promise<{ total: number; aborted: boolean }> {
     return this.request(
-      { type: 'prepare', samples, nullFontIndex },
+      { type: 'prepare-add', samples },
       samples.flatMap((s) => [
         s.image.buffer,
         s.styleImage.buffer,
@@ -97,24 +117,45 @@ export class JitClient {
     )
   }
 
+  prepareFinish(): Promise<{ prepared: number; aborted: boolean }> {
+    return this.request({ type: 'prepare-finish' })
+  }
+
+  // convenience wrapper: chunked begin/add/finish so callers holding a full
+  // sample list don't spike worker message sizes
+  async prepare(
+    samples: JitPrepareSample[],
+    nullFontIndex: number,
+  ): Promise<{ prepared: number; aborted: boolean }> {
+    await this.prepareBegin(nullFontIndex)
+    for (let i = 0; i < samples.length; i += 16) {
+      const r = await this.prepareAdd(samples.slice(i, i + 16))
+      if (r.aborted) break
+    }
+    return this.prepareFinish()
+  }
+
   train(opts: JitTrainOpts): Promise<{ aborted: boolean }> {
     return this.request({ type: 'train', opts })
   }
 
-  // out-of-band: resolves immediately, the running train stops at the next
-  // step boundary and its own promise resolves with {aborted: true}
+  // out-of-band: resolves immediately; a running train stops at the next
+  // microbatch boundary and a running prepare at the next sample, each
+  // resolving its own promise with {aborted: true}
   abort(): Promise<void> {
     return this.request({ type: 'abort' })
   }
 
-  sample(args: {
-    styleImage: Float32Array
-    contentImage: Float32Array
-    fontIndex: number
-    steps: number
-    cfg: number
-    seed: number
-  }): Promise<{ image: Float32Array }> {
+  sample(
+    args: {
+      styleImage: Float32Array
+      contentImage: Float32Array
+      fontIndex: number
+      steps: number
+      cfg: number
+      seed: number
+    } & JitAnchorOpts,
+  ): Promise<{ image: Float32Array }> {
     return this.request({ ...args, type: 'sample' }, [
       args.styleImage.buffer,
       args.contentImage.buffer,

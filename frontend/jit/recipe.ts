@@ -9,23 +9,46 @@
 
 export const TRAIN_SEED = 42
 export const HOLDOUT_SEED = 99999
-export const HOLDOUT_COUNT = 4
+export const HOLDOUT_COUNT = 8
 export const REFS_PER_CHAR = 4
 
 // Browser-feasible scalings of the offline recipe (500 chars x 200 epochs at
 // batch 16 is ~35 h at the in-browser 2.5 s/step, batch 2). Step counts are
 // chars/2 * epochs; ETA assumes ~2.5 s/step plus ~1.5 s/sample encoding.
+// Rebalanced toward chars > epochs at roughly constant step budget (research
+// doc Track B item 7; original zi2zi practice used 1000-2000 chars).
+// augVariants: resize+crop augmentation variants rendered per char at
+// prepare time (Track B item 6).
 export interface TrainPreset {
   key: string
   label: string
   chars: number
   epochs: number
+  augVariants: number
 }
 
 export const TRAIN_PRESETS: TrainPreset[] = [
-  { key: 'quick', label: 'Quick (~10 min)', chars: 64, epochs: 6 },
-  { key: 'standard', label: 'Standard (~25 min)', chars: 128, epochs: 8 },
-  { key: 'thorough', label: 'Thorough (~50 min)', chars: 192, epochs: 12 },
+  {
+    key: 'quick',
+    label: 'Quick (~12 min)',
+    chars: 96,
+    epochs: 5,
+    augVariants: 1,
+  },
+  {
+    key: 'standard',
+    label: 'Standard (~30 min)',
+    chars: 176,
+    epochs: 7,
+    augVariants: 2,
+  },
+  {
+    key: 'thorough',
+    label: 'Thorough (~55 min)',
+    chars: 256,
+    epochs: 9,
+    augVariants: 2,
+  },
 ]
 
 export function presetByKey(key: string): TrainPreset {
@@ -60,15 +83,43 @@ const isCjk = (cp: number) =>
 
 // Training + holdout codepoints from the glyphs the user font already has.
 // Sorted before sampling so the choice is stable across cmap iteration order.
+//
+// When `ranked` is provided (the IDS-component-coverage list from
+// frontend/public/data/char-coverage.json, see
+// scripts/build-char-coverage.js), training characters are taken in rank
+// order from the chars the font actually covers, so the most
+// document-frequent components are represented even in a small draw. The
+// holdout stays seeded-random from the full pool, and any shortfall after
+// the ranked pass is topped up with the seeded-random selection. Without
+// `ranked` the behavior is the original uniform seeded sampling.
 export function selectTrainingSet(
   covered: Iterable<number>,
   trainCount: number,
+  ranked?: number[],
 ): { train: number[]; holdout: number[] } {
   const pool = [...covered].filter(isCjk).sort((a, b) => a - b)
   const holdout = seededSample(pool, HOLDOUT_COUNT, HOLDOUT_SEED)
   const holdoutSet = new Set(holdout)
   const trainPool = pool.filter((cp) => !holdoutSet.has(cp))
-  const train = seededSample(trainPool, trainCount, TRAIN_SEED)
+  if (!ranked || ranked.length === 0) {
+    const train = seededSample(trainPool, trainCount, TRAIN_SEED)
+    return { train, holdout }
+  }
+  const trainPoolSet = new Set(trainPool)
+  const taken = new Set<number>()
+  const train: number[] = []
+  for (const cp of ranked) {
+    if (train.length >= trainCount) break
+    if (trainPoolSet.has(cp) && !taken.has(cp)) {
+      taken.add(cp)
+      train.push(cp)
+    }
+  }
+  if (train.length < trainCount) {
+    const remaining = trainPool.filter((cp) => !taken.has(cp))
+    const topUp = seededSample(remaining, trainCount - train.length, TRAIN_SEED)
+    train.push(...topUp)
+  }
   return { train, holdout }
 }
 

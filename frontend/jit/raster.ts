@@ -13,6 +13,13 @@
 export const JIT_CONTENT_SIZE = 256
 export const JIT_STYLE_SIZE = 128
 
+// shared scale/shift for one augmented training pair
+export interface GlyphJitter {
+  scale: number
+  dx: number
+  dy: number
+}
+
 const SAMPLE_LIMIT = 50
 
 // opentype.js Font — typed loosely to match the rest of the frontend
@@ -86,18 +93,25 @@ export class JitRasterizer {
   }
 
   // draw one glyph onto the internal canvas; returns false for missing or
-  // blank glyphs
-  renderToCanvas(cp: number): boolean {
+  // blank glyphs. jitter applies the offline resize_and_random_crop analog
+  // (scale about the canvas center plus a small shift) — pass the SAME
+  // jitter to the target and content renders of one training sample so the
+  // pair stays aligned.
+  renderToCanvas(cp: number, jitter?: GlyphJitter): boolean {
     const glyph = this.font.charToGlyph(String.fromCodePoint(cp))
     if (!glyph || glyph.index === 0) return false
     const { ctx, resolution } = this
     ctx.fillStyle = '#ffffff'
     ctx.fillRect(0, 0, resolution, resolution)
+    const s = jitter?.scale ?? 1
+    const half = resolution / 2
+    const ox = half + (this.offsetX - half) * s + (jitter?.dx ?? 0)
+    const oy = half + (this.offsetY - half) * s + (jitter?.dy ?? 0)
     const path = this.font.getPath(
       String.fromCodePoint(cp),
-      this.offsetX,
-      this.offsetY,
-      this.fontSize,
+      ox,
+      oy,
+      this.fontSize * s,
     )
     ctx.fillStyle = '#000000'
     ctx.beginPath()
@@ -128,8 +142,8 @@ export class JitRasterizer {
   }
 
   // [3*res*res] CHW in [-1,1], or null when the glyph is absent/blank
-  renderTensor(cp: number): Float32Array | null {
-    if (!this.renderToCanvas(cp)) return null
+  renderTensor(cp: number, jitter?: GlyphJitter): Float32Array | null {
+    if (!this.renderToCanvas(cp, jitter)) return null
     const t = this.tensorFromCanvas()
     // blank-detection: all-white means the cmap entry exists but has no ink
     let min = 1
