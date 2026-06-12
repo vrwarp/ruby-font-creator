@@ -1286,7 +1286,10 @@
                       style="width: 100%"
                     >
                       <option value="ai">
-                        AI style transfer (generated shapes)
+                        AI fast (few-shot style transfer)
+                      </option>
+                      <option value="faithful">
+                        AI style-faithful (trains on this font)
                       </option>
                       <option value="alias">
                         Variant mapping (reuse counterpart glyphs)
@@ -1330,6 +1333,138 @@
                       text-align: right;
                     "
                   ></div>
+                </div>
+
+                <!-- Style-faithful training panel (Fill Mode: faithful) -->
+                <div id="jit-panel" style="display: none; margin-top: 1rem">
+                  <div
+                    class="flex-row-between"
+                    style="gap: 1rem; flex-wrap: wrap; align-items: flex-end"
+                  >
+                    <div class="input-field" style="flex: 1; min-width: 150px">
+                      <label for="jit-preset-select">Training Effort</label>
+                      <select
+                        id="jit-preset-select"
+                        class="select-control"
+                        style="width: 100%"
+                      >
+                        <option value="quick">Quick (~10 min)</option>
+                        <option value="standard" selected>
+                          Standard (~25 min)
+                        </option>
+                        <option value="thorough">Thorough (~50 min)</option>
+                      </select>
+                    </div>
+                    <div class="input-field" style="flex: 1; min-width: 150px">
+                      <label for="jit-quality-select">Glyph Quality</label>
+                      <select
+                        id="jit-quality-select"
+                        class="select-control"
+                        style="width: 100%"
+                      >
+                        <option value="draft">
+                          Draft (8 steps, ~5 s/glyph)
+                        </option>
+                        <option value="standard" selected>
+                          Standard (20 steps, ~11 s/glyph)
+                        </option>
+                      </select>
+                    </div>
+                    <button
+                      id="btn-jit-retrain"
+                      class="btn btn-secondary btn-small"
+                      style="display: none; min-width: 120px"
+                    >
+                      <i class="fa-solid fa-rotate"></i> Retrain
+                    </button>
+                  </div>
+                  <div
+                    id="jit-status-lbl"
+                    style="
+                      font-size: 0.75rem;
+                      color: var(--text-secondary);
+                      margin-top: 0.5rem;
+                    "
+                  >
+                    Trains a small adapter on your font in the browser (WebGPU),
+                    then generates missing glyphs in its exact style. The model
+                    download is ~370 MB on first use.
+                  </div>
+                  <div
+                    id="jit-train-progress"
+                    style="display: none; margin-top: 0.5rem"
+                  >
+                    <div
+                      style="
+                        height: 6px;
+                        background: var(--bg-app);
+                        border-radius: 3px;
+                        overflow: hidden;
+                      "
+                    >
+                      <div
+                        id="jit-train-bar"
+                        style="
+                          height: 100%;
+                          width: 0%;
+                          background: var(--color-primary, #6366f1);
+                          transition: width 0.2s;
+                        "
+                      ></div>
+                    </div>
+                    <div
+                      class="flex-row-between"
+                      style="margin-top: 0.25rem; align-items: center"
+                    >
+                      <div
+                        id="jit-train-lbl"
+                        style="font-size: 0.7rem; color: var(--text-secondary)"
+                      ></div>
+                      <button
+                        id="btn-jit-cancel-train"
+                        class="btn btn-secondary btn-small"
+                      >
+                        Stop Training
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Preview gate: held-out glyphs, real vs generated -->
+                  <div id="jit-preview" style="display: none; margin-top: 1rem">
+                    <div
+                      style="
+                        font-size: 0.75rem;
+                        color: var(--text-secondary);
+                        margin-bottom: 0.5rem;
+                      "
+                    >
+                      Style check — your font's real glyphs (top) vs the trained
+                      model's rendition (bottom), on characters held out of
+                      training:
+                    </div>
+                    <div
+                      id="jit-preview-grid"
+                      style="display: flex; gap: 0.75rem; flex-wrap: wrap"
+                    ></div>
+                    <div
+                      class="flex-row-between"
+                      style="gap: 0.75rem; margin-top: 0.75rem; flex-wrap: wrap"
+                    >
+                      <button
+                        id="btn-jit-accept"
+                        class="btn btn-primary btn-small"
+                      >
+                        <i class="fa-solid fa-check"></i> Looks right — fill
+                        missing characters
+                      </button>
+                      <button
+                        id="btn-jit-reject"
+                        class="btn btn-secondary btn-small"
+                      >
+                        Discard
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

@@ -48,6 +48,9 @@ export interface TrainerOptions {
   warmupEpochs: number
   minLr: number
   seed: number
+  // polled between steps; returning true stops training cleanly (the LoRA
+  // state keeps whatever progress was made)
+  shouldStop?: () => boolean
   onProgress?: (info: {
     epoch: number
     step: number
@@ -56,6 +59,9 @@ export interface TrainerOptions {
     lr: number
   }) => void
 }
+
+// Host-side LoRA checkpoint: structured-clonable, IndexedDB-storable.
+export type LoraExport = Record<string, { data: Float32Array; shape: number[] }>
 
 export class JitTrainer {
   private model: ModelApi
@@ -68,7 +74,16 @@ export class JitTrainer {
     this.model = buildModel(frozen, config)
   }
 
+  private disposeOptState() {
+    if (this.optState) {
+      tree.dispose(this.optState)
+      this.optState = null
+    }
+  }
+
   initLora(seed: number) {
+    for (const v of Object.values(this.lora)) v.dispose()
+    this.lora = {}
     const { r, targets } = this.config.lora
     const dims: Record<string, [number, number]> = {
       qkv: [this.config.hiddenSize, 3 * this.config.hiddenSize],
@@ -118,6 +133,7 @@ export class JitTrainer {
     this.initLora(opts.seed)
     // optax adamw takes a fixed lr; the schedule is applied by scaling updates
     const baseSolver = adamw(1.0, { b1: 0.9, b2: 0.95, weightDecay: 0 })
+    this.disposeOptState()
     this.optState = baseSolver.init(tree.ref(this.lora))
 
     const lossFn = (
@@ -136,89 +152,94 @@ export class JitTrainer {
     const rng = mulberry32(opts.seed)
     let key = random.key(opts.seed + 1)
 
-    for (let epoch = 0; epoch < opts.epochs; epoch++) {
-      const order = shuffled(samples.length, rng)
-      for (let s = 0; s < stepsPerEpoch; s++) {
-        const globalStep = epoch * stepsPerEpoch + s
-        const lr = scheduleLr(
-          globalStep / stepsPerEpoch,
-          opts.lr,
-          opts.warmupEpochs,
-          opts.epochs,
-          opts.minLr,
-        )
+    try {
+      for (let epoch = 0; epoch < opts.epochs; epoch++) {
+        const order = shuffled(samples.length, rng)
+        for (let s = 0; s < stepsPerEpoch; s++) {
+          if (opts.shouldStop?.()) return
+          const globalStep = epoch * stepsPerEpoch + s
+          const lr = scheduleLr(
+            globalStep / stepsPerEpoch,
+            opts.lr,
+            opts.warmupEpochs,
+            opts.epochs,
+            opts.minLr,
+          )
 
-        // assemble batch on the host
-        const xHost = new Float32Array(B * 3 * S * S)
-        const cond = {
-          y: new Float32Array(B * C.hiddenSize),
-          font: new Float32Array(B * C.hiddenSize),
-          content: new Float32Array(B * C.hiddenSize),
-          style: new Float32Array(B * C.hiddenSize),
+          // assemble batch on the host
+          const xHost = new Float32Array(B * 3 * S * S)
+          const cond = {
+            y: new Float32Array(B * C.hiddenSize),
+            font: new Float32Array(B * C.hiddenSize),
+            content: new Float32Array(B * C.hiddenSize),
+            style: new Float32Array(B * C.hiddenSize),
+          }
+          const tHost = new Float32Array(B)
+          for (let b = 0; b < B; b++) {
+            const sample = samples[order[(s * B + b) % samples.length]]
+            xHost.set(sample.image, b * 3 * S * S)
+            const dropped = rng() < C.flow.labelDropProb
+            const src = dropped ? nullCond : sample
+            cond.y.set(src.yEmb, b * C.hiddenSize)
+            cond.font.set(src.fontEmb, b * C.hiddenSize)
+            cond.content.set(src.contentEmb, b * C.hiddenSize)
+            cond.style.set(src.styleEmb, b * C.hiddenSize)
+            // t = sigmoid(N(pMean, pStd))
+            const z = gauss(rng) * C.flow.pStd + C.flow.pMean
+            tHost[b] = 1 / (1 + Math.exp(-z))
+          }
+
+          const [kNoise, kNext] = random.split(key, 2)
+          key = kNext
+          const e = np.multiply(
+            random.normal(kNoise, [B, 3, S, S]),
+            C.flow.noiseScale,
+          )
+          const x = np.array(xHost).reshape([B, 3, S, S])
+          const t = np.array(tHost)
+          const yEmb = np.array(cond.y).reshape([B, C.hiddenSize])
+          const fontEmb = np.array(cond.font).reshape([B, C.hiddenSize])
+          const contentEmb = np.array(cond.content).reshape([B, C.hiddenSize])
+          const styleEmb = np.array(cond.style).reshape([B, C.hiddenSize])
+
+          const [lossVal, grads] = step(
+            tree.ref(this.lora),
+            x,
+            t,
+            e,
+            yEmb,
+            fontEmb,
+            contentEmb,
+            styleEmb,
+          ) as [JaxArray, LoraTree]
+
+          // optax's adamw chain includes addDecayedWeights, which requires the
+          // params argument even with weightDecay 0
+          const [updates, newState] = baseSolver.update(
+            grads,
+            this.optState,
+            tree.ref(this.lora),
+          )
+          this.optState = newState
+          const scaled: LoraTree = {}
+          for (const [k, v] of Object.entries(updates as LoraTree)) {
+            scaled[k] = np.multiply(v, lr)
+          }
+          const newLora = applyUpdates(this.lora, scaled) as LoraTree
+          this.lora = newLora
+
+          const loss = (await lossVal.jsAsync()) as number
+          opts.onProgress?.({
+            epoch,
+            step: s,
+            stepsPerEpoch,
+            loss,
+            lr,
+          })
         }
-        const tHost = new Float32Array(B)
-        for (let b = 0; b < B; b++) {
-          const sample = samples[order[(s * B + b) % samples.length]]
-          xHost.set(sample.image, b * 3 * S * S)
-          const dropped = rng() < C.flow.labelDropProb
-          const src = dropped ? nullCond : sample
-          cond.y.set(src.yEmb, b * C.hiddenSize)
-          cond.font.set(src.fontEmb, b * C.hiddenSize)
-          cond.content.set(src.contentEmb, b * C.hiddenSize)
-          cond.style.set(src.styleEmb, b * C.hiddenSize)
-          // t = sigmoid(N(pMean, pStd))
-          const z = gauss(rng) * C.flow.pStd + C.flow.pMean
-          tHost[b] = 1 / (1 + Math.exp(-z))
-        }
-
-        const [kNoise, kNext] = random.split(key, 2)
-        key = kNext
-        const e = np.multiply(
-          random.normal(kNoise, [B, 3, S, S]),
-          C.flow.noiseScale,
-        )
-        const x = np.array(xHost).reshape([B, 3, S, S])
-        const t = np.array(tHost)
-        const yEmb = np.array(cond.y).reshape([B, C.hiddenSize])
-        const fontEmb = np.array(cond.font).reshape([B, C.hiddenSize])
-        const contentEmb = np.array(cond.content).reshape([B, C.hiddenSize])
-        const styleEmb = np.array(cond.style).reshape([B, C.hiddenSize])
-
-        const [lossVal, grads] = step(
-          tree.ref(this.lora),
-          x,
-          t,
-          e,
-          yEmb,
-          fontEmb,
-          contentEmb,
-          styleEmb,
-        ) as [JaxArray, LoraTree]
-
-        // optax's adamw chain includes addDecayedWeights, which requires the
-        // params argument even with weightDecay 0
-        const [updates, newState] = baseSolver.update(
-          grads,
-          this.optState,
-          tree.ref(this.lora),
-        )
-        this.optState = newState
-        const scaled: LoraTree = {}
-        for (const [k, v] of Object.entries(updates as LoraTree)) {
-          scaled[k] = np.multiply(v, lr)
-        }
-        const newLora = applyUpdates(this.lora, scaled) as LoraTree
-        this.lora = newLora
-
-        const loss = (await lossVal.jsAsync()) as number
-        opts.onProgress?.({
-          epoch,
-          step: s,
-          stepsPerEpoch,
-          loss,
-          lr,
-        })
       }
+    } finally {
+      key.dispose()
     }
   }
 
@@ -283,41 +304,72 @@ export class JitTrainer {
       return np.add(vu.ref, np.multiply(np.subtract(vc, vu), scale))
     }
 
-    const key = random.key(opts.seed)
-    let z = np.multiply(random.normal(key, [1, 3, S, S]), C.flow.noiseScale)
-    const ts: number[] = []
-    for (let i = 0; i <= opts.steps; i++) ts.push(i / opts.steps)
+    // error paths (device loss, OOM mid-batch) must not strand device
+    // buffers: the bulk-fill loop catches per glyph and keeps going, so a
+    // leak here compounds across hundreds of glyphs
+    let z: JaxArray | null = null
+    let vPrev: JaxArray | null = null
+    try {
+      const key = random.key(opts.seed)
+      z = np.multiply(random.normal(key, [1, 3, S, S]), C.flow.noiseScale)
+      const ts: number[] = []
+      for (let i = 0; i <= opts.steps; i++) ts.push(i / opts.steps)
 
-    let vPrev = vAt(z.ref, ts[0])
-    z = np.add(z, np.multiply(vPrev.ref, ts[1] - ts[0]))
-    for (let i = 1; i < opts.steps; i++) {
-      const vCurr = vAt(z.ref, ts[i])
-      const combo = np.subtract(
-        np.multiply(vCurr.ref, 1.5),
-        np.multiply(vPrev, 0.5),
-      )
-      z = np.add(z, np.multiply(combo, ts[i + 1] - ts[i]))
-      vPrev = vCurr
+      vPrev = vAt(z.ref, ts[0])
+      z = np.add(z, np.multiply(vPrev.ref, ts[1] - ts[0]))
+      for (let i = 1; i < opts.steps; i++) {
+        const vCurr = vAt(z.ref, ts[i])
+        const combo = np.subtract(
+          np.multiply(vCurr.ref, 1.5),
+          np.multiply(vPrev, 0.5),
+        )
+        vPrev = null // consumed by combo
+        z = np.add(z, np.multiply(combo, ts[i + 1] - ts[i]))
+        vPrev = vCurr
+      }
+      vPrev.dispose()
+      vPrev = null
+
+      const zOut = z
+      z = null // consumed by jsAsync
+      return flattenToF32(await zOut.jsAsync())
+    } finally {
+      vPrev?.dispose()
+      z?.dispose()
+      yEmb.dispose()
+      fontEmb.dispose()
+      contentEmb.dispose()
+      styleEmb.dispose()
     }
-    vPrev.dispose()
-
-    const out = flattenToF32(await z.jsAsync())
-    yEmb.dispose()
-    fontEmb.dispose()
-    contentEmb.dispose()
-    styleEmb.dispose()
-    return out
   }
 
-  exportLora(): Record<string, { data: number[]; shape: number[] }> {
-    const out: Record<string, { data: number[]; shape: number[] }> = {}
+  hasLora(): boolean {
+    return Object.keys(this.lora).length > 0
+  }
+
+  async exportLora(): Promise<LoraExport> {
+    const out: LoraExport = {}
     for (const [k, v] of Object.entries(this.lora)) {
       out[k] = {
-        data: flattenToF32(v.ref.dataSync() as any) as any,
-        shape: v.aval.shape,
+        data: flattenToF32(await v.ref.jsAsync()),
+        shape: [...v.aval.shape],
       }
     }
     return out
+  }
+
+  // restore a checkpoint produced by exportLora (e.g., from IndexedDB);
+  // optimizer state is not restored — importing is for generation or a
+  // fresh fine-tune, not resuming an interrupted one
+  importLora(stored: LoraExport) {
+    for (const v of Object.values(this.lora)) v.dispose()
+    this.lora = {}
+    for (const [k, t] of Object.entries(stored)) {
+      this.lora[k] = np
+        .array(t.data as Float32Array<ArrayBuffer>)
+        .reshape(t.shape)
+    }
+    this.disposeOptState()
   }
 }
 

@@ -605,6 +605,9 @@ function rdp(pts: Point[], epsilon: number): Point[] {
  *                  interpolated threshold/255 level set of the image.
  * @param smoothing < 0.1 emits simplified polygons; otherwise sets the
  *                  Bezier fit tolerance in pixels (1.0 ≈ 0.4px).
+ * @param opts Per-resolution overrides: the defaults are tuned for 128px
+ *             rasters; 256px diffusion output wants minLoopArea ~8 (the
+ *             speckle floor scales with pixel area) and fitError 0.8.
  */
 export function traceGrayscaleImage(
   pixels: Uint8Array | Float32Array,
@@ -612,6 +615,7 @@ export function traceGrayscaleImage(
   height: number,
   threshold: number,
   smoothing: number = 1.0,
+  opts: { minLoopArea?: number; fitError?: number } = {},
 ): string {
   const field = new Float32Array(width * height)
   if (pixels instanceof Float32Array) {
@@ -620,9 +624,10 @@ export function traceGrayscaleImage(
     for (let i = 0; i < pixels.length; i++) field[i] = pixels[i] / 255
   }
   const iso = threshold / 255
+  const minArea = opts.minLoopArea ?? MIN_LOOP_AREA
 
   const loops = traceContours(field, width, height, iso).filter(
-    (l) => Math.abs(shoelace(l)) >= MIN_LOOP_AREA,
+    (l) => Math.abs(shoelace(l)) >= minArea,
   )
 
   const parts: string[] = []
@@ -632,7 +637,7 @@ export function traceGrayscaleImage(
       const path = polylineToPath(rdp(rs, 0.3))
       if (path) parts.push(path)
     } else {
-      const error = 0.15 + 0.25 * smoothing
+      const error = opts.fitError ?? 0.15 + 0.25 * smoothing
       const corners = detectCorners(rs, 55, 2)
       const path = segmentsToPath(fitContour(rs, corners, error))
       if (path) parts.push(path)

@@ -152,18 +152,22 @@ structural score is trustworthy), regenerates failures with fresh seeds
 wrong glyph. Scoring client: `scripts/textpecker_gate.py` (vendored parse
 utils in `vendor/textpecker/`). Without the endpoint the gate is skipped.
 
-**Why fine-tuning cannot run in the browser (June 2026).** Measured/cited in
-the perf research: onnxruntime-web's training API was deprecated in ORT 1.20
-(Oct 2024) and only ever ran on CPU-WASM; no framework today has
-production-grade WebGPU training (tfjs: no WebGPU gradients; candle: no
-WebGPU backend; burn: WASM training unsupported, issue #1254;
-webgpu-torch: abandoned 2023); there is no known precedent of >50M-param
-in-browser fine-tuning. The credible R&D path is jax-js (real autodiff+JIT
-on WebGPU, ~3 TFLOPS matmul on M4-class chips, Dec 2025) at an expected
-2-5x native wall-clock — a 2026H2+ bet, not a feature. The pragmatic
-near-term option if browser-initiated tuning is wanted: have the PWA
-orchestrate this CLI as a localhost companion (Chrome 142+ requires one
-Local Network Access permission grant).
+**In-browser fine-tuning (shipped June 2026).** The "2026H2+ bet" landed
+early: the jax-js port of JiT-B/16 (frontend/jit/) trains LoRA on WebGPU at
+~2.5 s/step (batch 2) with gradient parity vs PyTorch goldens (errB 1.5e-5;
+test/jit-parity.test.ts + the in-browser harness). It required three
+patch-package fixes to jax-js 0.1.11 — the Dot transpose rule materialized
+the full product (>2^31 bytes), naive sigmoid backward produced 0\*Inf=NaN
+below x=-88, and the wasm allocator's grow math went signed-negative — plus
+an inline stable silu in model.ts (nn.silu's jit wrapper corrupts gradient
+buffers on the WebGPU backend). The UX is the "AI style-faithful" Fill Mode:
+scaled-down presets (64-192 chars x 6-12 epochs vs the CLI's 500x200), a
+held-out preview gate before bulk generation, LoRA checkpoints in IndexedDB,
+and cancellable/resumable fills. Known deviations from the offline recipe,
+accepted and documented in code: Droid Sans Fallback as the content font
+(consistent across train+gen; Source Han Serif is 11 MB and unshipped) and
+no per-epoch crop augmentation. The offline CLI remains the quality ceiling
+(full recipe, TextPecker gate).
 
 Inference performance (measured 2026-06, M4 Mac, Chrome):
 

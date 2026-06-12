@@ -24,16 +24,45 @@ export interface ChineseFontEntry {
   timestamp: number
 }
 
+// Trained style-faithful LoRA checkpoint for one uploaded Chinese font,
+// keyed by the same name as its chinese_fonts entry (~19 MB of Float32Array
+// per checkpoint). Patching a font adds glyphs but does not change its
+// style, so checkpoints survive repatching; retraining overwrites.
+export interface JitLoraEntry {
+  fontName: string
+  lora: Record<string, { data: Float32Array; shape: number[] }>
+  trainedAt: number
+  presetKey: string
+  trainChars: number
+  epochs: number
+  // the exact codepoint split used at training time: generation reuses
+  // trainCps for style references and holdoutCps for the preview gate, so
+  // neither ever includes glyphs the adapter did not train on (a partially
+  // filled font's coverage would otherwise leak AI-generated glyphs in)
+  trainCps: number[]
+  holdoutCps: number[]
+}
+
 const DB_NAME = 'RubyFontCreatorDB'
 const STORE_NAME = 'fonts'
 const PINYIN_STORE_NAME = 'pinyin_fonts'
 const CHINESE_STORE_NAME = 'chinese_fonts'
-const DB_VERSION = 3
+const JIT_LORA_STORE_NAME = 'jit_lora'
+// v5: adds the jit_lora store (v4 skipped — a dev build upgraded some
+// databases to 4 without it, and IndexedDB never re-runs upgrades for the
+// same version; the conditional creates below make any hop safe)
+const DB_VERSION = 5
 
 function getDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION)
     request.onerror = () => reject(request.error)
+    request.onblocked = () =>
+      reject(
+        new Error(
+          'Database upgrade blocked — close other tabs of this app and retry.',
+        ),
+      )
     request.onsuccess = () => resolve(request.result)
     request.onupgradeneeded = () => {
       const db = request.result
@@ -45,6 +74,9 @@ function getDB(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(CHINESE_STORE_NAME)) {
         db.createObjectStore(CHINESE_STORE_NAME, { keyPath: 'name' })
+      }
+      if (!db.objectStoreNames.contains(JIT_LORA_STORE_NAME)) {
+        db.createObjectStore(JIT_LORA_STORE_NAME, { keyPath: 'fontName' })
       }
     }
   })
@@ -181,6 +213,41 @@ export async function deleteChineseFont(name: string): Promise<void> {
     const transaction = db.transaction(CHINESE_STORE_NAME, 'readwrite')
     const store = transaction.objectStore(CHINESE_STORE_NAME)
     const request = store.delete(name)
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => resolve()
+  })
+}
+
+export async function saveJitLora(entry: JitLoraEntry): Promise<void> {
+  const db = await getDB()
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(JIT_LORA_STORE_NAME, 'readwrite')
+    const store = transaction.objectStore(JIT_LORA_STORE_NAME)
+    const request = store.put(entry)
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => resolve()
+  })
+}
+
+export async function getJitLora(
+  fontName: string,
+): Promise<JitLoraEntry | null> {
+  const db = await getDB()
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(JIT_LORA_STORE_NAME, 'readonly')
+    const store = transaction.objectStore(JIT_LORA_STORE_NAME)
+    const request = store.get(fontName)
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => resolve(request.result || null)
+  })
+}
+
+export async function deleteJitLora(fontName: string): Promise<void> {
+  const db = await getDB()
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(JIT_LORA_STORE_NAME, 'readwrite')
+    const store = transaction.objectStore(JIT_LORA_STORE_NAME)
+    const request = store.delete(fontName)
     request.onerror = () => reject(request.error)
     request.onsuccess = () => resolve()
   })

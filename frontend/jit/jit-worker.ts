@@ -5,15 +5,23 @@
 // onnxruntime-web to precompute per-sample conditioning, then trains LoRA
 // with the jitted flow-matching step and samples glyphs with ab2 + CFG.
 //
-// Protocol (request/response by id, mirroring zi2zi-worker-core):
-//   init    {assetBase}                  -> {device, weightsMs}
-//   prepare {samples: [{image256, styleImage128, contentImage256, fontIndex}],
-//            nullFontIndex}              -> {prepared, nullCond}  (conditioning
-//            precompute; images are Float32Array in [-1,1], CHW)
-//   train   {opts}                       -> streams {type:'progress', ...},
-//                                           ends {type:'train-done'}
-//   sample  {cond, uncond, steps, cfg, seed} -> {image: Float32Array}
-//   bench   {batchSize}                  -> {stepMs}
+// Protocol (request/response by id, mirroring zi2zi-worker-core; all images
+// are CHW Float32Arrays in [-1,1]; requests run strictly one at a time except
+// 'abort'):
+//   init        {assetBase} -> {device, weightsMs}
+//   prepare     {samples: [{image(3*256*256), styleImage(3*128*128),
+//                contentImage(3*256*256), fontIndex}], nullFontIndex}
+//               -> streams {type:'prepare-progress', done, total},
+//                  ends {prepared, aborted}
+//   train       {opts} -> streams {type:'progress', epoch, step,
+//                stepsPerEpoch, loss, lr}, ends {aborted}
+//   abort       {} -> {} immediately (out-of-band; the running prepare/train
+//               stops at its next checkpoint and resolves with aborted: true)
+//   sample      {styleImage, contentImage, fontIndex, steps, cfg, seed}
+//               -> {image: Float32Array [1,3,256,256] in ~[-1,1], ink black}
+//   export-lora {} -> {lora: Record<name, {data, shape}>}
+//   import-lora {lora, nullFontIndex} -> {}
+//   parity      {goldensBase, mode?, batch?} -> diagnostics
 
 import * as ort from 'onnxruntime-web/wasm'
 import ortWasmUrl from '../../node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm?url'
@@ -89,25 +97,48 @@ async function handleInit(assetBase: string) {
   return { device, weightsMs: Math.round(performance.now() - t0) }
 }
 
-async function encodeCond(
-  styleImage: Float32Array, // [3*128*128] in [-1,1]
-  contentImage: Float32Array, // [3*256*256] in [-1,1]
-  fontIndex: number,
-) {
-  const styleOut = await styleSession.run({
+async function encodeStyle(styleImage: Float32Array): Promise<Float32Array> {
+  // [3*128*128] in [-1,1]
+  const out = await styleSession.run({
     image: new ort.Tensor('float32', styleImage, [1, 3, 128, 128]),
   })
-  const contentOut = await contentSession.run({
+  return out.embedding.data as Float32Array
+}
+
+async function encodeContent(
+  contentImage: Float32Array, // [3*256*256] in [-1,1]
+): Promise<Float32Array> {
+  const out = await contentSession.run({
     image: new ort.Tensor('float32', contentImage, [1, 3, 256, 256]),
   })
-  const styleEmb = styleOut.embedding.data as Float32Array
-  const contentEmb = contentOut.embedding.data as Float32Array
+  return out.embedding.data as Float32Array
+}
+
+function buildCond(
+  styleEmb: Float32Array,
+  contentEmb: Float32Array,
+  fontIndex: number,
+) {
   const fontEmb = fontTable!.slice(fontIndex * hidden, (fontIndex + 1) * hidden)
   const yEmb = new Float32Array(hidden)
   for (let i = 0; i < hidden; i++)
     yEmb[i] = fontEmb[i] + styleEmb[i] + contentEmb[i]
   return { yEmb, fontEmb, contentEmb, styleEmb }
 }
+
+async function encodeCond(
+  styleImage: Float32Array,
+  contentImage: Float32Array,
+  fontIndex: number,
+) {
+  return buildCond(
+    await encodeStyle(styleImage),
+    await encodeContent(contentImage),
+    fontIndex,
+  )
+}
+
+let abortRequested = false
 
 // Gradient/loss parity against the PyTorch goldens — run here (WebGPU) since
 // node's wasm32 4GB heap cannot hold the full eager backward.
@@ -265,8 +296,21 @@ async function handleParity(
   }
 }
 
-self.onmessage = async (e: MessageEvent) => {
+// All requests run strictly one-at-a-time: concurrent jax computations would
+// race on trainer.lora under move semantics. 'abort' bypasses the queue —
+// it only flips a flag polled by the running train loop.
+let queue: Promise<void> = Promise.resolve()
+self.onmessage = (e: MessageEvent) => {
   const msg = e.data
+  if (msg.type === 'abort') {
+    abortRequested = true
+    postMessage({ type: 'aborted', id: msg.id, output: {} })
+    return
+  }
+  queue = queue.then(() => handle(msg))
+}
+
+async function handle(msg: any) {
   try {
     if (msg.type === 'init') {
       const out = await handleInit(msg.assetBase)
@@ -279,32 +323,49 @@ self.onmessage = async (e: MessageEvent) => {
       )
       postMessage({ type: 'parity-done', id: msg.id, output: out })
     } else if (msg.type === 'prepare') {
+      // prepare + train form one abortable run: the flag resets here (not in
+      // 'train'), so a Stop click during the minutes-long encode phase is
+      // honored instead of being wiped when the queued train starts
+      abortRequested = false
       samples = []
       for (const s of msg.samples) {
+        if (abortRequested) break
         const cond = await encodeCond(s.styleImage, s.contentImage, s.fontIndex)
         samples.push({ image: s.image, ...cond })
+        postMessage({
+          type: 'prepare-progress',
+          done: samples.length,
+          total: msg.samples.length,
+        })
       }
-      // CFG null conditioning: white images + the null font slot
-      const whiteStyle = new Float32Array(3 * 128 * 128).fill(1)
-      const whiteContent = new Float32Array(3 * 256 * 256).fill(1)
-      nullCond = await encodeCond(whiteStyle, whiteContent, msg.nullFontIndex)
+      if (!abortRequested) {
+        // CFG null conditioning: white images + the null font slot
+        const whiteStyle = new Float32Array(3 * 128 * 128).fill(1)
+        const whiteContent = new Float32Array(3 * 256 * 256).fill(1)
+        nullCond = await encodeCond(whiteStyle, whiteContent, msg.nullFontIndex)
+      }
       postMessage({
         type: 'prepared',
         id: msg.id,
-        output: { prepared: samples.length },
+        output: { prepared: samples.length, aborted: abortRequested },
       })
     } else if (msg.type === 'train') {
       if (!trainer || !nullCond) throw new Error('not prepared')
       await trainer.train(samples, nullCond, {
         ...msg.opts,
+        shouldStop: () => abortRequested,
         onProgress: (info) => postMessage({ type: 'progress', ...info }),
       })
-      postMessage({ type: 'train-done', id: msg.id })
+      postMessage({
+        type: 'train-done',
+        id: msg.id,
+        output: { aborted: abortRequested },
+      })
     } else if (msg.type === 'sample') {
       if (!trainer || !nullCond) throw new Error('not prepared')
-      const cond = await encodeCond(
-        msg.styleImage,
-        msg.contentImage,
+      const cond = buildCond(
+        await encodeStyle(msg.styleImage),
+        await encodeContent(msg.contentImage),
         msg.fontIndex,
       )
       const image = await trainer.sample(cond, nullCond, {
@@ -315,6 +376,27 @@ self.onmessage = async (e: MessageEvent) => {
       postMessage({ type: 'sampled', id: msg.id, output: { image } }, [
         image.buffer,
       ] as any)
+    } else if (msg.type === 'export-lora') {
+      if (!trainer) throw new Error('not initialized')
+      const lora = await trainer.exportLora()
+      postMessage(
+        { type: 'lora-exported', id: msg.id, output: { lora } },
+        Object.values(lora).map((t) => t.data.buffer) as any,
+      )
+    } else if (msg.type === 'import-lora') {
+      if (!trainer) throw new Error('not initialized')
+      trainer.importLora(msg.lora)
+      // imported checkpoints are for generation: CFG still needs the null
+      // conditioning, which prepare() normally sets up
+      if (!nullCond) {
+        const whiteStyle = new Float32Array(3 * 128 * 128).fill(1)
+        const whiteContent = new Float32Array(3 * 256 * 256).fill(1)
+        nullCond = await encodeCond(whiteStyle, whiteContent, msg.nullFontIndex)
+      }
+      postMessage({ type: 'lora-imported', id: msg.id, output: {} })
+    } else {
+      // reject instead of hanging the client's pending promise forever
+      throw new Error(`unknown message type '${msg.type}'`)
     }
   } catch (err: any) {
     postMessage({
