@@ -7,8 +7,8 @@
 //    very style signal the model trains on)
 //  - white background, black ink, RGB replicated to 3 channels, CHW layout,
 //    normalized uint8/255 * 2 - 1 into [-1, 1]
-//  - style input = 2x2 reference grid of 4 glyphs (each cell 128px on a
-//    256px grid), downscaled to 128x128
+//  - style input = ONE reference glyph downscaled to 128x128 (the offline
+//    2x2 grids are storage; the style encoder always consumes one cell)
 
 export const JIT_CONTENT_SIZE = 256
 export const JIT_STYLE_SIZE = 128
