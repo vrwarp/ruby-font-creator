@@ -26,6 +26,13 @@ export default defineConfig({
   optimizeDeps: {
     exclude: ['onnxruntime-web'],
   },
+  // the jit worker pulls in @jax-js/jax, whose dynamic backend imports
+  // (webgpu chunk) force code-splitting — impossible under the default
+  // 'iife' worker format. Dev mode already serves module workers, so 'es'
+  // aligns prod with dev; both worker entries use { type: 'module' }.
+  worker: {
+    format: 'es',
+  },
   server: {
     port: 3000,
     open: false,
