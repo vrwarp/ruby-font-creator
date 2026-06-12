@@ -473,6 +473,7 @@ async function handle(msg: any) {
           seed: msg.seed,
           tStart: msg.tStart,
           initImage: msg.tStart ? msg.contentImage : undefined,
+          initBlur: msg.initBlur,
           loraScale: msg.loraScale,
           loraTStart: msg.loraTStart,
           contentCfg: msg.contentCfg,
@@ -481,6 +482,11 @@ async function handle(msg: any) {
       )
       postMessage({ type: 'sampled', id: msg.id, output: { image } }, [
         image.buffer,
+      ] as any)
+    } else if (msg.type === 'style-embed') {
+      const emb = await encodeStyle(msg.image)
+      postMessage({ type: 'style-embedded', id: msg.id, output: { emb } }, [
+        emb.buffer,
       ] as any)
     } else if (msg.type === 'export-lora') {
       if (!trainer) throw new Error('not initialized')

@@ -3125,26 +3125,29 @@ function loadCharCoverage(): Promise<number[] | null> {
 }
 
 // inference-time structure anchors (docs/style-transfer-research.md Track A)
-const JIT_ANCHOR_LEVELS = ['off', 'auto', 'strong'] as const
+// Measured on ZCOOL KuaiLe: EVERY whole-run anchor trades style for
+// structure (raw init -> content-font strokes; blurred init -> gray
+// residue; content-CFG alone is too weak to fix structure). So the policy
+// is rescue-only: attempt 0 runs the pure model (max style), and anchors
+// escalate ONLY on glyphs the structure gate rejects — those individually
+// trade style for correctness instead of taxing the whole fill.
 function jitAnchorOpts(level?: string): JitAnchorOpts {
   const v = level ?? elements.jitAnchorSelect.value
-  if (v === 'off') return {}
-  if (v === 'strong') return { tStart: 0.35, loraScale: 0.85, loraTStart: 0.25 }
-  return { tStart: 0.2, loraTStart: 0.15 } // auto
+  if (v === 'strong') return { tStart: 0.3, initBlur: 10, contentCfg: 4 }
+  return {} // auto and off: first attempts are pure model
 }
 
-// gate-failure regen escalation: each round steps the anchor level up; the
-// final round adds decoupled content guidance (2x forwards)
+// gate-failure regen escalation (auto): round 1 adds a blurred
+// low-frequency init, round 2 strengthens it and adds content guidance.
+// 'off' opts out of anchors entirely (reseed only); 'strong' anchors every
+// attempt.
 function jitEscalatedAnchor(round: number): JitAnchorOpts {
   const sel = elements.jitAnchorSelect.value as string
-  const idx = Math.max(
-    JIT_ANCHOR_LEVELS.indexOf(sel as (typeof JIT_ANCHOR_LEVELS)[number]),
-    0,
-  )
-  const lvl = JIT_ANCHOR_LEVELS[Math.min(idx + round, 2)]
-  const opts = jitAnchorOpts(lvl)
-  if (round >= 2) opts.contentCfg = 4
-  return opts
+  if (sel === 'off') return {}
+  if (sel === 'strong') return jitAnchorOpts('strong')
+  if (round === 1) return { tStart: 0.3, initBlur: 10 }
+  if (round >= 2) return { tStart: 0.45, initBlur: 8, contentCfg: 4 }
+  return {}
 }
 
 // gate calibration: the font's own real glyphs scored against the content
@@ -3457,6 +3460,7 @@ async function jitPreviewGate(fontKey: string): Promise<boolean> {
   const cellSize = 96
   let made = 0
   const previews: {
+    cp: number
     genInk: Float32Array
     realInk: Float32Array | null
     genCanvas: HTMLCanvasElement
@@ -3544,6 +3548,7 @@ async function jitPreviewGate(fontKey: string): Promise<boolean> {
     // comparing generated vs REAL, so this is a pure structure check)
     const realTensor = ctx.userRaster.renderTensor(cp)
     previews.push({
+      cp,
       genInk: ink,
       realInk: realTensor ? sampleToInk(realTensor, JIT_CONTENT_SIZE) : null,
       genCanvas: gen,
@@ -3597,17 +3602,84 @@ async function jitPreviewGate(fontKey: string): Promise<boolean> {
     p.genCanvas.style.borderWidth = '2px'
     if (ok) scorePass++
   })
+  // style similarity via the frozen style encoder: cosine(gen, real) per
+  // holdout, with cosine(contentFont, real) as the "no style transfer"
+  // baseline — gen must beat the baseline or the adapter/anchor combination
+  // is washing the style out
+  let styleMatch = NaN
+  let styleBaseline = NaN
+  try {
+    const cos = (a: Float32Array, b: Float32Array) => {
+      let dot = 0
+      let na = 0
+      let nb = 0
+      for (let i = 0; i < a.length; i++) {
+        dot += a[i] * b[i]
+        na += a[i] * a[i]
+        nb += b[i] * b[i]
+      }
+      return dot / Math.max(1e-9, Math.sqrt(na) * Math.sqrt(nb))
+    }
+    // gen ink (256, ink-high) -> 128px style-format image [-1,1]
+    const inkTo128 = (ink: Float32Array): Float32Array => {
+      const out = new Float32Array(3 * 128 * 128)
+      for (let y = 0; y < 128; y++) {
+        for (let x = 0; x < 128; x++) {
+          const i2 = 2 * y * JIT_CONTENT_SIZE + 2 * x
+          const avg =
+            (ink[i2] +
+              ink[i2 + 1] +
+              ink[i2 + JIT_CONTENT_SIZE] +
+              ink[i2 + JIT_CONTENT_SIZE + 1]) /
+            4
+          const v = 1 - 2 * avg
+          const o = y * 128 + x
+          out[o] = v
+          out[128 * 128 + o] = v
+          out[2 * 128 * 128 + o] = v
+        }
+      }
+      return out
+    }
+    const genCos: number[] = []
+    const baseCos: number[] = []
+    for (let i = 0; i < previews.length; i++) {
+      const cp = previews[i].cp
+      const realImg = ctx.userRaster.renderStyleImage([cp])
+      const contentImg = ctx.contentRaster.renderStyleImage([cp])
+      if (!realImg || !contentImg || !previews[i].realInk) continue
+      const realEmb = (await client.styleEmbed(realImg)).emb
+      const genEmb = (await client.styleEmbed(inkTo128(previews[i].genInk))).emb
+      const contEmb = (await client.styleEmbed(contentImg)).emb
+      genCos.push(cos(genEmb, realEmb))
+      baseCos.push(cos(contEmb, realEmb))
+    }
+    if (genCos.length) {
+      styleMatch = genCos.reduce((a, b) => a + b, 0) / genCos.length
+      styleBaseline = baseCos.reduce((a, b) => a + b, 0) / baseCos.length
+    }
+  } catch {
+    /* style score is advisory */
+  }
+
   if (elements.jitPreviewScore) {
     const healthy = scoreTotal > 0 && scorePass / scoreTotal >= 0.7
+    const styleOk = !isFinite(styleMatch) || styleMatch > styleBaseline + 0.02
+    const stylePart = isFinite(styleMatch)
+      ? ` Style match: ${styleMatch.toFixed(2)} (content-font baseline ${styleBaseline.toFixed(2)}).` +
+        (styleOk
+          ? ''
+          : ' Style is washing out — lower the Structure Anchor or train longer.')
+      : ''
     elements.jitPreviewScore.textContent = scoreTotal
       ? `Structure check: ${scorePass}/${scoreTotal} held-out glyphs identified correctly.` +
         (healthy
           ? ''
-          : ' Structure looks weak — consider a higher Training Effort and Retrain, or a stronger Structure Anchor.')
+          : ' Structure looks weak — consider a higher Training Effort and Retrain, or a stronger Structure Anchor.') +
+        stylePart
       : ''
-    elements.jitPreviewScore.style.color = healthy
-      ? 'var(--text-secondary)'
-      : '#ef4444'
+    elements.jitPreviewScore.style.color =
+      healthy && styleOk ? 'var(--text-secondary)' : '#ef4444'
   }
 
   elements.jitPreview.style.display = ''

@@ -43,6 +43,7 @@ export interface JitAnchorOpts {
   tStart?: number // SDEdit init strength: layout from the content rendering
   loraScale?: number // global LoRA delta multiplier
   loraTStart?: number // mute LoRA below this t (base model decides layout)
+  initBlur?: number // blur the init image: layout-only anchoring
   contentCfg?: number // decoupled content guidance weight (2x forwards/step)
 }
 
@@ -160,6 +161,12 @@ export class JitClient {
       args.styleImage.buffer,
       args.contentImage.buffer,
     ])
+  }
+
+  // style-encoder embedding of an arbitrary [3*128*128] CHW [-1,1] image —
+  // used for the preview gate's style-similarity score
+  styleEmbed(image: Float32Array): Promise<{ emb: Float32Array }> {
+    return this.request({ type: 'style-embed', image }, [image.buffer])
   }
 
   exportLora(): Promise<{ lora: LoraExport }> {

@@ -73,14 +73,14 @@ None`, `lora_single_gpu_finetune_jit.py:161`; `model_ema1` is only read for the
 
 ### Track A — Inference-time structure anchors (no retraining; work with already-saved adapters)
 
-| #   | Technique                                                                                                                                                                                                                                                                                                                                                               | Change                                                                                 | Feasibility / impact   |
-| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | ---------------------- |
-| A1  | **SDEdit-style init** (arXiv:2108.01073): start sampling from the noised content rendering, not pure noise. In this codebase's convention (z_t = t·x + (1−t)·e, t: 0=noise → 1=data): `z = tStart·content + (1−tStart)·noise·noiseScale`, integrate tStart→1. Anchors radical layout from step one; _reduces_ compute (fewer steps). Sweep tStart ∈ {0.15, 0.25, 0.35}. | ~10 lines in `frontend/jit/trainer.ts` sample() + optional plumb through worker/client | trivial / **high**     |
-| A2  | **LoRA scale dial + early-step muting**: multiply the LoRA delta by α (post-hoc interpolation toward the intact prior — "LoRA Learns Less and Forgets Less", arXiv:2405.09673), plus the coarse-to-fine variant α(t)=0 for t<tSwitch so the _base model_ decides layout and the LoRA styles late. Sweep α ∈ {0.6, 0.8, 1.0} × tSwitch ∈ {0, 0.2, 0.3}.                  | pass `loraScale` through `model.ts` linear() as a jit argument                         | trivial / **high**     |
-| A3  | **Decoupled two-condition CFG** (InstructPix2Pix, arXiv:2211.09800; HFH-Font TOG 2024 uses per-condition scales): `v = v_uncond + w_c(v_content − v_uncond) + w_s(v_full − v_content)` — strengthen content adherence independently of style. Sweep w_c ∈ [3, 8], w_s ∈ [1.5, 2.6] offline first.                                                                       | B=3 stacked forward in vAt() (one extra B=3 parity check)                              | moderate / high        |
-| A4  | (stretch) **x0-space low-pass content injection** (FreeText-style, arXiv:2601.00535): `x̂' = x̂ + λ(t)·lowpass(content − x̂)` with λ→0 by mid-sampling. Pixel-space x-prediction makes this trivial — the sampler already has x̂ each step. Sweep λ₀ ∈ [0.3, 0.8], cutoff ∈ [0.4, 0.6], pool 8–16 px.                                                                       | small change in vAt()                                                                  | moderate / medium-high |
-| A5  | (defer) Training-free attention/feature injection (Ctrl-X NeurIPS 2024, Stable Flow CVPR 2025): inject K/V from a content trajectory into early blocks. Strong literature, heavy surgery on `model.ts`.                                                                                                                                                                 | hard / medium                                                                          |
-| A6  | (defer) Energy-gradient guidance (FreeDoM ICCV 2023, TFG NeurIPS 2024): steer with ∂E/∂z where E = 1 − softIoU(ink(x̂), dilated content skeleton). jax-js autodiff makes it possible (~2–3× cost on guided steps); literature says finicky to tune.                                                                                                                      | moderate / medium                                                                      |
+| #   | Technique                                                                                                                                                                                                                                                                                                                                                                | Change                                                                                 | Feasibility / impact   |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------- | ---------------------- |
+| A1  | **SDEdit-style init** (arXiv:2108.01073): start sampling from the noised content rendering, not pure noise. In this codebase's convention (z*t = t·x + (1−t)·e, t: 0=noise → 1=data): `z = tStart·content + (1−tStart)·noise·noiseScale`, integrate tStart→1. Anchors radical layout from step one; \_reduces* compute (fewer steps). Sweep tStart ∈ {0.15, 0.25, 0.35}. | ~10 lines in `frontend/jit/trainer.ts` sample() + optional plumb through worker/client | trivial / **high**     |
+| A2  | **LoRA scale dial + early-step muting**: multiply the LoRA delta by α (post-hoc interpolation toward the intact prior — "LoRA Learns Less and Forgets Less", arXiv:2405.09673), plus the coarse-to-fine variant α(t)=0 for t<tSwitch so the _base model_ decides layout and the LoRA styles late. Sweep α ∈ {0.6, 0.8, 1.0} × tSwitch ∈ {0, 0.2, 0.3}.                   | pass `loraScale` through `model.ts` linear() as a jit argument                         | trivial / **high**     |
+| A3  | **Decoupled two-condition CFG** (InstructPix2Pix, arXiv:2211.09800; HFH-Font TOG 2024 uses per-condition scales): `v = v_uncond + w_c(v_content − v_uncond) + w_s(v_full − v_content)` — strengthen content adherence independently of style. Sweep w_c ∈ [3, 8], w_s ∈ [1.5, 2.6] offline first.                                                                        | B=3 stacked forward in vAt() (one extra B=3 parity check)                              | moderate / high        |
+| A4  | (stretch) **x0-space low-pass content injection** (FreeText-style, arXiv:2601.00535): `x̂' = x̂ + λ(t)·lowpass(content − x̂)` with λ→0 by mid-sampling. Pixel-space x-prediction makes this trivial — the sampler already has x̂ each step. Sweep λ₀ ∈ [0.3, 0.8], cutoff ∈ [0.4, 0.6], pool 8–16 px.                                                                        | small change in vAt()                                                                  | moderate / medium-high |
+| A5  | (defer) Training-free attention/feature injection (Ctrl-X NeurIPS 2024, Stable Flow CVPR 2025): inject K/V from a content trajectory into early blocks. Strong literature, heavy surgery on `model.ts`.                                                                                                                                                                  | hard / medium                                                                          |
+| A6  | (defer) Energy-gradient guidance (FreeDoM ICCV 2023, TFG NeurIPS 2024): steer with ∂E/∂z where E = 1 − softIoU(ink(x̂), dilated content skeleton). jax-js autodiff makes it possible (~2–3× cost on guided steps); literature says finicky to tune.                                                                                                                       | moderate / medium                                                                      |
 
 ### Track B — Training recipe fixes (validate offline first, then port)
 
@@ -165,6 +165,30 @@ Design, mirroring `scripts/textpecker_gate.py`:
    calibration-trust pattern — not a VLM.
 
 ---
+
+## 2b. Measured anchor sweep (June 2026, post-implementation)
+
+In-browser A/B on a Quick-preset ZCOOL adapter (75 optimizer updates), scored
+by the preview gate's structure identification (k/8) and style-encoder cosine
+vs the real glyphs (content-font baseline 0.90 — the "no style transfer"
+floor):
+
+| Anchor config                     | Structure | Style match | Visual                                       |
+| --------------------------------- | --------- | ----------- | -------------------------------------------- |
+| off (pure model, 20 steps)        | 1/8       | —           | ZCOOL-like chunky strokes, broken components |
+| raw SDEdit init tStart 0.2 (8 st) | 7/8       | —           | thin, content-font-styled                    |
+| blurred init tStart 0.3 (20 st)   | 7/8       | 0.89        | correct layout, gray blur residue in strokes |
+| content-CFG w_c=4 alone (20 st)   | 2/8       | 0.87        | washed style, structure not rescued          |
+
+Conclusions that OVERTURN the original Track-A default recommendation:
+**every whole-run anchor trades style for structure** (pixel inits inject the
+content font's appearance at any frequency band; conditioning-only guidance is
+too weak to fix structure — consistent with the pooled-content architectural
+ceiling). The shipped policy is therefore **rescue-only**: attempt 0 runs the
+pure model (maximum style), and anchors escalate only on glyphs the structure
+gate rejects — blurred init at round 1, stronger init + content-CFG at round 2. Style fidelity itself must come from training scale (the Quick preset's 75
+updates are far too few; Thorough = 720). The preview gate now reports BOTH
+axes: structure k/8 and style cosine vs the content-font baseline.
 
 ## 3. Experiment harness & priority order
 

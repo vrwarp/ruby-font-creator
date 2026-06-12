@@ -87,6 +87,10 @@ export interface SampleOptions {
   // z = tStart·initImage + (1−tStart)·noise instead of pure noise
   tStart?: number
   initImage?: Float32Array // content rendering [3*S*S] CHW [-1,1]
+  // box-blur radius (px) applied to initImage before mixing: low
+  // frequencies carry radical layout, high frequencies carry stroke style —
+  // blurring anchors structure without injecting the content font's strokes
+  initBlur?: number
   // LoRA dial: global delta multiplier, and muting below loraTStart so the
   // intact base model decides layout before the LoRA styles it
   loraScale?: number
@@ -539,11 +543,13 @@ export class JitTrainer {
       )
       const t0 = opts.tStart && opts.initImage ? opts.tStart : 0
       if (t0 > 0) {
-        // SDEdit anchor: layout comes from the content rendering, the
-        // remaining (1−t0) of the schedule restyles it
-        const content = np
-          .array(opts.initImage!.slice() as Float32Array<ArrayBuffer>)
-          .reshape([1, 3, S, S])
+        // SDEdit anchor: LAYOUT comes from the (blurred) content rendering,
+        // the remaining (1−t0) of the schedule paints the strokes
+        let init = opts.initImage!.slice() as Float32Array<ArrayBuffer>
+        if (opts.initBlur && opts.initBlur > 0) {
+          init = boxBlurCHW(init, S, opts.initBlur) as Float32Array<ArrayBuffer>
+        }
+        const content = np.array(init).reshape([1, 3, S, S])
         z = np.add(np.multiply(content, t0), np.multiply(noise, 1 - t0))
       } else {
         z = noise
@@ -612,6 +618,51 @@ export class JitTrainer {
     }
     this.disposeOptState()
   }
+}
+
+// separable two-pass box blur on a CHW image (channels are identical gray
+// planes, so blur one and replicate)
+function boxBlurCHW(
+  img: Float32Array,
+  size: number,
+  radius: number,
+): Float32Array {
+  const plane = size * size
+  const src0 = img.subarray(0, plane)
+  const tmp = new Float32Array(plane)
+  const dst = new Float32Array(plane)
+  const r = Math.max(1, Math.round(radius))
+  const win = 2 * r + 1
+  // horizontal
+  for (let y = 0; y < size; y++) {
+    let acc = 0
+    const row = y * size
+    for (let x = -r; x <= r; x++)
+      acc += src0[row + Math.min(size - 1, Math.max(0, x))]
+    for (let x = 0; x < size; x++) {
+      tmp[row + x] = acc / win
+      const add = Math.min(size - 1, x + r + 1)
+      const sub = Math.max(0, x - r)
+      acc += src0[row + add] - src0[row + sub]
+    }
+  }
+  // vertical
+  for (let x = 0; x < size; x++) {
+    let acc = 0
+    for (let y = -r; y <= r; y++)
+      acc += tmp[Math.min(size - 1, Math.max(0, y)) * size + x]
+    for (let y = 0; y < size; y++) {
+      dst[y * size + x] = acc / win
+      const add = Math.min(size - 1, y + r + 1)
+      const sub = Math.max(0, y - r)
+      acc += tmp[add * size + x] - tmp[sub * size + x]
+    }
+  }
+  const out = new Float32Array(3 * plane)
+  out.set(dst, 0)
+  out.set(dst, plane)
+  out.set(dst, 2 * plane)
+  return out
 }
 
 function flattenToF32(x: any): Float32Array {
