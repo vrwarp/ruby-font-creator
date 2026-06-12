@@ -38,6 +38,8 @@ export default tseslint.config(
       'dist-web/',
       'node_modules/',
       'scratch/',
+      'vendor/',
+      '.venv-mxfont/',
       // Vendored assets are not ours to lint, but sw.js is first-party code
       'frontend/public/**/*',
       '!frontend/public/sw.js',

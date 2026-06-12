@@ -6,6 +6,24 @@ import {
   getAlternateGlyphEntries,
   POLYPHONIC_ENTRIES,
 } from '../src/polyphonic.js'
+import { traceGrayscaleImage } from '../src/vectorizer.js'
+import {
+  planVariantFill,
+  summarizeCoverage,
+  type FillDirection,
+  type VariantData,
+} from '../src/variants.js'
+import {
+  Zi2ziClient,
+  Zi2ziPool,
+  MODEL_SIZE,
+  renderGlyphTensor,
+  pickStyleRefs,
+  type StyleFactors,
+} from './zi2zi-client.js'
+import { JitClient } from './jit/jit-client.js'
+import { JitRasterizer, sampleToInk, JIT_CONTENT_SIZE } from './jit/raster.js'
+import { selectTrainingSet, pickRefsFor, presetByKey } from './jit/recipe.js'
 
 // Interface declarations
 interface SyllablePreset {
@@ -294,7 +312,9 @@ const state = {
   // Layout & Alignment
   placement: 'top', // top | bottom
   pinyinFont: 'droid-sans', // droid-sans | pt-sans-regular | pt-sans-bold
+  chineseFont: 'droid-sans-fallback',
   managerSelectedFont: 'droid-sans',
+  managerSelectedChineseFont: 'droid-sans-fallback',
   showGuides: false,
   characterWidth: 80,
 
@@ -346,6 +366,11 @@ const state = {
   activeTab: 'worship', // worship | textbook | sandbox | tester | manager
   darkMode: true,
   enablePolyphonic: true,
+  zi2ziThreshold: 128,
+  zi2ziSmoothing: 1.0,
+  zi2ziGeneratedSvg: '',
+  zi2ziGeneratedChar: '',
+  zi2ziStatus: 'Model not loaded',
 }
 
 // DOM Selectors
@@ -502,6 +527,84 @@ const elements = {
   testerTextInput: document.getElementById(
     'tester-text-input',
   ) as HTMLTextAreaElement,
+
+  // Chinese Font Selectors
+  chineseFontSelect: document.getElementById(
+    'chinese-font-select',
+  ) as HTMLSelectElement,
+  chineseUploadZone: document.getElementById('chinese-upload-zone')!,
+  chineseFileInput: document.getElementById(
+    'chinese-file-input',
+  ) as HTMLInputElement,
+  managerChineseFontSelect: document.getElementById(
+    'manager-chinese-font-select',
+  ) as HTMLSelectElement,
+  btnUseChinese: document.getElementById(
+    'btn-use-chinese',
+  ) as HTMLButtonElement,
+  btnDeleteChinese: document.getElementById(
+    'btn-delete-chinese',
+  ) as HTMLButtonElement,
+  chineseManagerPreview: document.getElementById('chinese-manager-preview')!,
+  chineseFontFamilyLbl: document.getElementById('chinese-font-family-lbl')!,
+  chineseFontEmLbl: document.getElementById('chinese-font-em-lbl')!,
+
+  zi2ziInputChar: document.getElementById(
+    'zi2zi-input-char',
+  ) as HTMLInputElement,
+  zi2ziStatusLbl: document.getElementById('zi2zi-status-lbl')!,
+  zi2ziDirectionSelect: document.getElementById(
+    'zi2zi-direction-select',
+  ) as HTMLSelectElement,
+  zi2ziModeSelect: document.getElementById(
+    'zi2zi-mode-select',
+  ) as HTMLSelectElement,
+  zi2ziProgressBar: document.getElementById('zi2zi-progress-bar')!,
+  zi2ziProgressLbl: document.getElementById('zi2zi-progress-lbl')!,
+  chineseFontCoverageLbl: document.getElementById('chinese-font-coverage-lbl')!,
+  rangeZi2ziThreshold: document.getElementById(
+    'range-zi2zi-threshold',
+  ) as HTMLInputElement,
+  valZi2ziThreshold: document.getElementById('val-zi2zi-threshold')!,
+  rangeZi2ziSmoothing: document.getElementById(
+    'range-zi2zi-smoothing',
+  ) as HTMLInputElement,
+  valZi2ziSmoothing: document.getElementById('val-zi2zi-smoothing')!,
+  btnZi2ziGenerate: document.getElementById(
+    'btn-zi2zi-generate',
+  ) as HTMLButtonElement,
+  btnZi2ziInject: document.getElementById(
+    'btn-zi2zi-inject',
+  ) as HTMLButtonElement,
+  btnZi2ziBatch: document.getElementById(
+    'btn-zi2zi-batch',
+  ) as HTMLButtonElement,
+  zi2ziSrcPreview: document.getElementById('zi2zi-src-preview')!,
+  zi2ziCanvasOutput: document.getElementById(
+    'zi2zi-canvas-output',
+  ) as HTMLCanvasElement,
+  zi2ziSvgRender: document.getElementById('zi2zi-svg-render')!,
+  jitPanel: document.getElementById('jit-panel')!,
+  jitPresetSelect: document.getElementById(
+    'jit-preset-select',
+  ) as HTMLSelectElement,
+  jitQualitySelect: document.getElementById(
+    'jit-quality-select',
+  ) as HTMLSelectElement,
+  btnJitRetrain: document.getElementById(
+    'btn-jit-retrain',
+  ) as HTMLButtonElement,
+  jitStatusLbl: document.getElementById('jit-status-lbl')!,
+  jitTrainProgress: document.getElementById('jit-train-progress')!,
+  jitTrainBar: document.getElementById('jit-train-bar')!,
+  jitTrainLbl: document.getElementById('jit-train-lbl')!,
+  btnJitCancelTrain: document.getElementById(
+    'btn-jit-cancel-train',
+  ) as HTMLButtonElement,
+  jitPreview: document.getElementById('jit-preview')!,
+  jitPreviewGrid: document.getElementById('jit-preview-grid')!,
+  btnJitAccept: document.getElementById('btn-jit-accept') as HTMLButtonElement,
+  btnJitReject: document.getElementById('btn-jit-reject') as HTMLButtonElement,
 }
 
 // Start Initialize
@@ -534,6 +637,10 @@ function saveStateToUrl() {
   params.set('testerFontSize', state.testerFontSize.toString())
   params.set('testerLineHeight', state.testerLineHeight.toString())
   params.set('testerText', state.testerText)
+
+  params.set('chineseFont', state.chineseFont)
+  params.set('zi2ziThreshold', state.zi2ziThreshold.toString())
+  params.set('zi2ziSmoothing', state.zi2ziSmoothing.toString())
 
   const newUrl = `${window.location.pathname}?${params.toString()}${window.location.hash}`
   window.history.replaceState({}, '', newUrl)
@@ -650,6 +757,20 @@ function loadStateFromUrl() {
     3.0,
   )
   if (params.has('testerText')) state.testerText = params.get('testerText')!
+
+  if (params.has('chineseFont')) state.chineseFont = params.get('chineseFont')!
+  state.zi2ziThreshold = readInt(
+    'zi2ziThreshold',
+    state.zi2ziThreshold,
+    20,
+    230,
+  )
+  state.zi2ziSmoothing = readFloat(
+    'zi2ziSmoothing',
+    state.zi2ziSmoothing,
+    0.1,
+    3.0,
+  )
 }
 
 function syncUIFromState() {
@@ -734,6 +855,22 @@ function syncUIFromState() {
     elements.testerFontStatus.className = 'badge badge-warning'
     elements.testerFontStatus.textContent = 'No Font Loaded'
   }
+
+  // Chinese Font Selectors Sync
+  if (elements.chineseFontSelect) {
+    elements.chineseFontSelect.value = state.chineseFont
+  }
+  if (elements.managerChineseFontSelect) {
+    elements.managerChineseFontSelect.value = state.managerSelectedChineseFont
+  }
+
+  // zi2zi UI Sync
+  elements.rangeZi2ziThreshold.value = state.zi2ziThreshold.toString()
+  elements.valZi2ziThreshold.textContent = state.zi2ziThreshold.toString()
+  elements.rangeZi2ziSmoothing.value = state.zi2ziSmoothing.toString()
+  elements.valZi2ziSmoothing.textContent = state.zi2ziSmoothing.toFixed(1)
+  elements.zi2ziInputChar.value = state.zi2ziGeneratedChar || '书'
+  elements.zi2ziSrcPreview.textContent = elements.zi2ziInputChar.value
 }
 
 // Apply the layout configuration stored with a compiled font, then refresh
@@ -1203,10 +1340,13 @@ function init() {
   setupPresets()
   setupEventListeners()
   setupPinyinFontEvents()
+  setupChineseFontEvents()
+  setupZi2ziEvents()
   loadLocalFont()
   loadStateFromUrl()
   syncUIFromState()
   refreshPinyinFontsDropdown()
+  refreshChineseFontsDropdown()
   fetchAndPopulateFonts()
   updateUI()
 }
@@ -1625,13 +1765,7 @@ const annotationFontEngines: Record<string, any> = {}
 
 async function getLocalFontEngine(): Promise<any> {
   if (localFontEngine) return localFontEngine
-
-  const res = await fetch('./resources/fonts/DroidSansFallbackFull.ttf')
-  if (!res.ok)
-    throw new Error('Failed to fetch base font DroidSansFallbackFull.ttf')
-  const buffer = await res.arrayBuffer()
-  const font = opentype.parse(buffer)
-  localFontEngine = new TextToSVG(font)
+  localFontEngine = await getChineseFontEngine(state.chineseFont)
   return localFontEngine
 }
 
@@ -2616,7 +2750,9 @@ async function fetchAndPopulateFonts(selectFontName?: string) {
   }
 }
 
-if ('serviceWorker' in navigator) {
+// In dev the SW's stale-while-revalidate serves outdated vite-transformed
+// modules (each edit needs two reloads to land) — register only in prod.
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
   window.addEventListener('load', () => {
     navigator.serviceWorker
       .register('./sw.js')
@@ -2630,6 +2766,1222 @@ if ('serviceWorker' in navigator) {
         console.error('[PWA] Service Worker registration failed:', err)
       })
   })
+}
+
+// Custom Chinese Font and zi2zi helper functions
+
+const chineseFontEngines: Record<string, any> = {}
+
+async function getChineseFontEngine(fontKey: string): Promise<any> {
+  if (chineseFontEngines[fontKey]) return chineseFontEngines[fontKey]
+
+  if (fontKey === 'droid-sans-fallback') {
+    const res = await fetch('./resources/fonts/DroidSansFallbackFull.ttf')
+    if (!res.ok)
+      throw new Error('Failed to fetch base font DroidSansFallbackFull.ttf')
+    const buffer = await res.arrayBuffer()
+    const font = opentype.parse(buffer)
+    const engine = new TextToSVG(font)
+    chineseFontEngines[fontKey] = engine
+    return engine
+  } else {
+    const { getChineseFont } = await import('./db.js')
+    const fontEntry = await getChineseFont(fontKey)
+    if (!fontEntry) {
+      throw new Error(`Chinese font not found in DB: ${fontKey}`)
+    }
+    const buffer = fontEntry.ttf.buffer.slice(
+      fontEntry.ttf.byteOffset,
+      fontEntry.ttf.byteOffset + fontEntry.ttf.byteLength,
+    )
+    const font = opentype.parse(buffer)
+    const engine = new TextToSVG(font)
+    chineseFontEngines[fontKey] = engine
+    return engine
+  }
+}
+
+async function refreshChineseFontsDropdown(selectedName?: string) {
+  try {
+    const { listChineseFonts } = await import('./db.js')
+    const customFonts = await listChineseFonts()
+
+    elements.chineseFontSelect.innerHTML = ''
+    elements.managerChineseFontSelect.innerHTML = ''
+
+    const systemFonts = [
+      { value: 'droid-sans-fallback', text: 'Droid Sans Fallback (System)' },
+    ]
+
+    systemFonts.forEach((f) => {
+      const opt = document.createElement('option')
+      opt.value = f.value
+      opt.textContent = f.text
+      elements.chineseFontSelect.appendChild(opt)
+
+      const optM = document.createElement('option')
+      optM.value = f.value
+      optM.textContent = f.text
+      elements.managerChineseFontSelect.appendChild(optM)
+    })
+
+    customFonts.forEach((f) => {
+      const opt = document.createElement('option')
+      opt.value = f.name
+      opt.textContent = `${f.displayName}`
+      elements.chineseFontSelect.appendChild(opt)
+
+      const optM = document.createElement('option')
+      optM.value = f.name
+      optM.textContent = `${f.displayName}`
+      elements.managerChineseFontSelect.appendChild(optM)
+    })
+
+    const target = state.chineseFont || 'droid-sans-fallback'
+    elements.chineseFontSelect.value = target
+
+    const managedTarget =
+      selectedName || state.managerSelectedChineseFont || 'droid-sans-fallback'
+    elements.managerChineseFontSelect.value = managedTarget
+    state.managerSelectedChineseFont = managedTarget
+
+    await auditActiveChineseFont()
+    await jitRefreshPanelStatus()
+  } catch (err) {
+    console.error('Failed to refresh Chinese fonts list:', err)
+  }
+}
+
+async function auditActiveChineseFont() {
+  try {
+    const fontKey = state.managerSelectedChineseFont
+    const isSystem = fontKey === 'droid-sans-fallback'
+
+    elements.btnDeleteChinese.disabled = isSystem
+    elements.btnUseChinese.disabled = state.chineseFont === fontKey
+
+    const engine = await getChineseFontEngine(fontKey)
+    const font = engine.font
+
+    elements.chineseFontFamilyLbl.textContent =
+      font.names.fontFamily?.en || fontKey
+    elements.chineseFontEmLbl.textContent = font.unitsPerEm.toString()
+    updateChineseFontCoverageInfo(font)
+
+    // The preview box is cosmetic; some fonts (e.g. Droid Sans Fallback Full)
+    // fail Chrome's OpenType Sanitizer when loaded via FontFace even though
+    // opentype.js parses them fine — fall back to the default family then.
+    try {
+      const fontName = `manager-chinese-${fontKey}`
+      let fontBuffer: ArrayBuffer
+      if (isSystem) {
+        const res = await fetch('./resources/fonts/DroidSansFallbackFull.ttf')
+        if (!res.ok) throw new Error('Failed to load system font file')
+        fontBuffer = await res.arrayBuffer()
+      } else {
+        const { getChineseFont } = await import('./db.js')
+        const fontEntry = await getChineseFont(fontKey)
+        if (!fontEntry) throw new Error('Font entry not found')
+        fontBuffer = fontEntry.ttf.buffer.slice(
+          fontEntry.ttf.byteOffset,
+          fontEntry.ttf.byteOffset + fontEntry.ttf.byteLength,
+        )
+      }
+      const fontFace = new FontFace(fontName, fontBuffer)
+      await fontFace.load()
+      registerFontFace(fontFace)
+      elements.chineseManagerPreview.style.fontFamily = `'${fontName}', sans-serif`
+    } catch {
+      elements.chineseManagerPreview.style.fontFamily = 'var(--font-sans)'
+    }
+  } catch (err) {
+    console.error('Failed to audit active Chinese font:', err)
+  }
+}
+
+async function handleChineseFontUpload(file: File) {
+  try {
+    showPinyinStatus('Reading Chinese font file...', true)
+    const buffer = await file.arrayBuffer()
+    const font = opentype.parse(buffer)
+
+    const displayName =
+      font.names.fontFamily?.en || file.name.replace(/\.[^/.]+$/, '')
+    const name = file.name.replace(/\.[^/.]+$/, '').replace(/\s+/g, '-')
+
+    const { saveChineseFont, deleteJitLora } = await import('./db.js')
+    await saveChineseFont({
+      name,
+      displayName,
+      ttf: new Uint8Array(buffer),
+      isSystem: false,
+      isPatched: false,
+      timestamp: Date.now(),
+    })
+    // a (re-)upload under this name invalidates any style adapter trained
+    // on the previous bytes
+    await deleteJitLora(name).catch(() => {})
+    if (jitReadyFontKey === name) jitReadyFontKey = null
+    if (jitActiveSets?.fontKey === name) jitActiveSets = null
+
+    showPinyinStatus('Chinese font uploaded successfully!', false)
+    setTimeout(() => showPinyinStatus('', false), 3000)
+
+    state.managerSelectedChineseFont = name
+    await refreshChineseFontsDropdown(name)
+    updateUI()
+  } catch (err: any) {
+    console.error('Chinese font upload failed:', err)
+    showPinyinStatus(`Upload failed: ${err.message}`, false)
+  }
+}
+
+function setupChineseFontEvents() {
+  const zone = elements.chineseUploadZone
+  const fileInput = elements.chineseFileInput
+
+  zone.addEventListener('click', () => fileInput.click())
+
+  fileInput.addEventListener('change', () => {
+    const files = fileInput.files
+    if (files && files.length > 0) {
+      handleChineseFontUpload(files[0])
+    }
+  })
+
+  zone.addEventListener('dragover', (e) => {
+    e.preventDefault()
+    zone.classList.add('dragover')
+  })
+
+  zone.addEventListener('dragleave', () => {
+    zone.classList.remove('dragover')
+  })
+
+  zone.addEventListener('drop', (e) => {
+    e.preventDefault()
+    zone.classList.remove('dragover')
+    const files = e.dataTransfer?.files
+    if (files && files.length > 0 && files[0].name.endsWith('.ttf')) {
+      handleChineseFontUpload(files[0])
+    }
+  })
+
+  elements.managerChineseFontSelect.addEventListener('change', () => {
+    state.managerSelectedChineseFont = elements.managerChineseFontSelect.value
+    auditActiveChineseFont()
+    jitRefreshPanelStatus()
+  })
+
+  elements.btnUseChinese.addEventListener('click', () => {
+    state.chineseFont = state.managerSelectedChineseFont
+    localFontEngine = null
+    updateUI()
+    auditActiveChineseFont()
+  })
+
+  elements.btnDeleteChinese.addEventListener('click', async () => {
+    const fontKey = state.managerSelectedChineseFont
+    if (['droid-sans-fallback'].includes(fontKey)) return
+
+    if (confirm(`Are you sure you want to delete Chinese font "${fontKey}"?`)) {
+      try {
+        const { deleteChineseFont, deleteJitLora } = await import('./db.js')
+        await deleteChineseFont(fontKey)
+        await deleteJitLora(fontKey).catch(() => {})
+        if (jitReadyFontKey === fontKey) jitReadyFontKey = null
+        if (jitActiveSets?.fontKey === fontKey) jitActiveSets = null
+        if (chineseFontEngines[fontKey]) {
+          delete chineseFontEngines[fontKey]
+        }
+        if (state.chineseFont === fontKey) {
+          state.chineseFont = 'droid-sans-fallback'
+          localFontEngine = null
+        }
+        state.managerSelectedChineseFont = 'droid-sans-fallback'
+        await refreshChineseFontsDropdown()
+        updateUI()
+      } catch (err) {
+        console.error('Delete Chinese font failed:', err)
+      }
+    }
+  })
+}
+
+// --- AI glyph generation (zi2zi-style few-shot style transfer, MX-Font) ---
+//
+// The model takes a handful of glyphs from the ACTIVE Chinese font as style
+// references and a rendering of the wanted character from the bundled
+// reference font (Droid Sans Fallback) as content, and produces the character
+// in the active font's style. Used to fill missing simplified/traditional
+// halves of partial fonts; the deterministic alternative simply remaps the
+// codepoint to the existing counterpart glyph (exact style, variant shape).
+
+const zi2zi = new Zi2ziClient()
+const zi2ziPool = new Zi2ziPool(zi2zi)
+let zi2ziStyleFontKey: string | null = null
+let zi2ziPoolStyleFontKey: string | null = null
+let lastStyleFactors: StyleFactors | null = null
+let lastGenerated: { char: string; ink: Float32Array } | null = null
+let batchCancelRequested = false
+let lastBatchPreviewAt = 0
+
+// Debug/benchmark hook for automated tests and console experiments.
+;(window as any).__zi2zi = {
+  client: zi2zi,
+  newClient: () => new Zi2ziClient(),
+  ensureReady: (fontKey: string) => ensureZi2ziReady(fontKey),
+  generate: (char: string) => generateGlyphInk(char),
+  trace: (ink: Float32Array, threshold: number, smoothing: number) =>
+    traceGrayscaleImage(ink, MODEL_SIZE, MODEL_SIZE, threshold, smoothing),
+  renderGlyphTensor,
+  pickStyleRefs,
+  getEngine: (key: string) => getChineseFontEngine(key),
+}
+
+// Console/test harness over the shared style-faithful client (same worker
+// the UX uses, so manual experiments observe real app state). Note: unlike
+// the old inline harness, prepare/sample TRANSFER their Float32Array
+// buffers to the worker — pass fresh copies if you reuse arrays.
+;(window as any).__jit = {
+  progress: [] as any[],
+  init: () => ensureJitInit().then(() => ({ device: jitDevice })),
+  parity: (goldensBase: string, mode?: string, batch?: number) =>
+    getJitClient().parity(goldensBase, mode, batch),
+  prepare: (samples: any[], nullFontIndex: number) =>
+    getJitClient().prepare(samples, nullFontIndex),
+  train: (opts: any) => getJitClient().train(opts),
+  sample: (args: any) => getJitClient().sample(args),
+  abort: () => getJitClient().abort(),
+  exportLora: () => getJitClient().exportLora(),
+  dispose: () => {
+    jitClient?.dispose()
+    jitClient = null
+    jitDevice = null
+    jitReadyFontKey = null
+  },
+}
+
+// ===== Style-faithful fill (in-browser zi2zi-JiT LoRA fine-tuning) =====
+
+// fine-tuned slot in the model's font-embedding table; slot numFonts (1000)
+// is the CFG null label — both fixed by the exported jit_config.json
+const JIT_FONT_INDEX = 1
+const JIT_NULL_FONT_INDEX = 1000
+const JIT_CFG = 2.6
+const JIT_SEED = 42
+const JIT_BATCH_SIZE = 2 // hard cap: larger batches exceed kernel index space
+
+let jitClient: JitClient | null = null
+let jitDevice: string | null = null
+// font whose LoRA is currently loaded in the worker
+let jitReadyFontKey: string | null = null
+// the codepoint split the loaded adapter was trained with — generation must
+// draw style refs from it (a partially filled font's live coverage would
+// leak AI-generated glyphs into the reference picks)
+let jitActiveSets: {
+  fontKey: string
+  trainCps: number[]
+  holdoutCps: number[]
+} | null = null
+let jitPreviewResolve: ((accepted: boolean) => void) | null = null
+
+function getJitClient(): JitClient {
+  if (!jitClient) {
+    jitClient = new JitClient()
+    jitClient.onTrainProgress = (p) => (window as any).__jit.progress.push(p)
+  }
+  return jitClient
+}
+
+async function ensureJitInit(): Promise<JitClient> {
+  const client = getJitClient()
+  if (!jitDevice) {
+    setZi2ziStatus(
+      'Loading style-faithful model (~370 MB on first use, cached offline)…',
+    )
+    const { device } = await client.init(new URL('./', document.baseURI).href)
+    jitDevice = device
+    if (device !== 'webgpu') {
+      setZi2ziStatus(
+        'Warning: WebGPU unavailable — style-faithful training would take hours on CPU.',
+      )
+    }
+  }
+  return client
+}
+
+function jitSamplerSteps(): number {
+  return elements.jitQualitySelect.value === 'draft' ? 8 : 20
+}
+
+// Renders the train/holdout context for the selected font: rasterizers for
+// the user font (targets + style refs) and the content font, plus the
+// character split. When an adapter is loaded, the split it was TRAINED with
+// (jitActiveSets) takes precedence over recomputing from live coverage.
+//
+// Content images come from Droid Sans Fallback rather than the offline
+// recipe's Source Han Serif (11 MB, not shipped): training and generation
+// use the same content font, so the LoRA absorbs the distribution shift —
+// an accepted trade-off until a Source Han subset ships.
+async function jitBuildContext(fontKey: string) {
+  const engine = await getChineseFontEngine(fontKey)
+  const contentEngine = await getChineseFontEngine('droid-sans-fallback')
+  const userRaster = new JitRasterizer(engine.font, JIT_CONTENT_SIZE)
+  const contentRaster = new JitRasterizer(contentEngine.font, JIT_CONTENT_SIZE)
+  const preset = presetByKey(elements.jitPresetSelect.value)
+  let train: number[]
+  let holdout: number[]
+  if (jitActiveSets && jitActiveSets.fontKey === fontKey) {
+    train = jitActiveSets.trainCps
+    holdout = jitActiveSets.holdoutCps
+  } else {
+    const covered = coveredCodepoints(engine.font)
+    ;({ train, holdout } = selectTrainingSet(covered, preset.chars))
+  }
+  return { engine, userRaster, contentRaster, train, holdout, preset }
+}
+
+// Trains a fresh LoRA on the font and persists it; returns false when the
+// whole fill flow should stop (user cancelled via the main batch button).
+// Stopping via "Stop Training" keeps the partial adapter and continues to
+// the preview gate, where the user judges whether it is usable.
+async function jitRunTraining(fontKey: string): Promise<boolean> {
+  const client = await ensureJitInit()
+  if (batchCancelRequested) return false
+  // a retrain must compute a fresh split, not inherit the deleted adapter's
+  if (jitActiveSets?.fontKey === fontKey) jitActiveSets = null
+  const ctx = await jitBuildContext(fontKey)
+  if (ctx.train.length < 8) {
+    throw new Error('This font has too few CJK glyphs to learn its style from.')
+  }
+
+  // Unlike the offline recipe there is no per-epoch resize-and-random-crop
+  // augmentation (samples are encoded once); with the small browser presets
+  // the regularization loss is an accepted trade-off.
+  setZi2ziStatus('Rendering training samples…')
+  const samples = []
+  const trainedCps: number[] = []
+  for (const cp of ctx.train) {
+    const image = ctx.userRaster.renderTensor(cp)
+    const contentImage = ctx.contentRaster.renderTensor(cp)
+    const refs = pickRefsFor(cp, ctx.train)
+    const styleImage =
+      refs.length > 0 ? ctx.userRaster.renderStyleImage(refs) : null
+    if (!image || !contentImage || !styleImage) continue
+    samples.push({ image, styleImage, contentImage, fontIndex: JIT_FONT_INDEX })
+    trainedCps.push(cp)
+  }
+  if (samples.length < 8) {
+    throw new Error('Too few renderable training samples in this font.')
+  }
+  if (batchCancelRequested) return false
+
+  elements.jitTrainProgress.style.display = ''
+  elements.jitTrainBar.style.width = '0%'
+  try {
+    client.onPrepareProgress = (done, total) => {
+      elements.jitTrainLbl.textContent = `Encoding samples ${done}/${total}…`
+      elements.jitTrainBar.style.width = `${Math.round((done / total) * 12)}%`
+    }
+    // the main batch button doubles as cancel-all; the watch also covers the
+    // minutes-long prepare phase (the worker polls the abort flag there)
+    const cancelWatch = setInterval(() => {
+      if (batchCancelRequested) client.abort().catch(() => {})
+    }, 500)
+    let aborted: boolean
+    try {
+      setZi2ziStatus(`Preparing ${samples.length} training samples…`)
+      const prep = await client.prepare(samples, JIT_NULL_FONT_INDEX)
+      if (prep.aborted) {
+        setZi2ziStatus('Training stopped before it began.')
+        return false
+      }
+
+      const stepsPerEpoch = Math.max(
+        1,
+        Math.floor(samples.length / JIT_BATCH_SIZE),
+      )
+      const totalSteps = stepsPerEpoch * ctx.preset.epochs
+      const stepTimes: number[] = []
+      let lastTick = performance.now()
+      client.onTrainProgress = (p) => {
+        const globalStep = p.epoch * p.stepsPerEpoch + p.step + 1
+        const now = performance.now()
+        stepTimes.push(now - lastTick)
+        lastTick = now
+        if (stepTimes.length > 20) stepTimes.shift()
+        const avgMs = stepTimes.reduce((a, b) => a + b, 0) / stepTimes.length
+        const etaMin = Math.round(((totalSteps - globalStep) * avgMs) / 60000)
+        elements.jitTrainBar.style.width = `${12 + Math.round((globalStep / totalSteps) * 88)}%`
+        elements.jitTrainLbl.textContent = `Training ${globalStep}/${totalSteps} — loss ${p.loss.toFixed(3)} — ${etaMin < 1 ? '<1' : '~' + etaMin} min left`
+      }
+      setZi2ziStatus('Training the style adapter on your font…')
+      const res = await client.train({
+        epochs: ctx.preset.epochs,
+        batchSize: JIT_BATCH_SIZE,
+        lr: 8e-4,
+        warmupEpochs: 1,
+        minLr: 1e-5,
+        seed: JIT_SEED,
+      })
+      aborted = res.aborted
+    } finally {
+      clearInterval(cancelWatch)
+    }
+    if (aborted && batchCancelRequested) return false
+
+    setZi2ziStatus('Saving the trained adapter…')
+    const { lora } = await client.exportLora()
+    const { saveJitLora } = await import('./db.js')
+    await saveJitLora({
+      fontName: fontKey,
+      lora,
+      trainedAt: Date.now(),
+      presetKey: ctx.preset.key,
+      trainChars: samples.length,
+      epochs: ctx.preset.epochs,
+      trainCps: trainedCps,
+      holdoutCps: ctx.holdout,
+    })
+    jitReadyFontKey = fontKey
+    jitActiveSets = {
+      fontKey,
+      trainCps: trainedCps,
+      holdoutCps: ctx.holdout,
+    }
+    return true
+  } finally {
+    elements.jitTrainProgress.style.display = 'none'
+    client.onPrepareProgress = null
+    // restore the console-harness recorder the UI updater displaced
+    client.onTrainProgress = (p) => (window as any).__jit.progress.push(p)
+  }
+}
+
+// Makes sure a LoRA for this font is loaded in the worker, training one if
+// none is saved. Returns false if the user cancelled.
+async function jitEnsureTrained(fontKey: string): Promise<boolean> {
+  if (jitReadyFontKey === fontKey) return true
+  const client = await ensureJitInit()
+  const { getJitLora } = await import('./db.js')
+  const saved = await getJitLora(fontKey)
+  if (saved) {
+    setZi2ziStatus('Loading the saved style adapter…')
+    await client.importLora(saved.lora, JIT_NULL_FONT_INDEX)
+    jitReadyFontKey = fontKey
+    jitActiveSets =
+      saved.trainCps?.length && saved.holdoutCps?.length
+        ? {
+            fontKey,
+            trainCps: saved.trainCps,
+            holdoutCps: saved.holdoutCps,
+          }
+        : null
+    return true
+  }
+  return jitRunTraining(fontKey)
+}
+
+// Held-out style check: real glyphs (top) vs generated (bottom). Resolves
+// true when the user accepts.
+async function jitPreviewGate(fontKey: string): Promise<boolean> {
+  const client = await ensureJitInit()
+  const ctx = await jitBuildContext(fontKey)
+  const steps = jitSamplerSteps()
+  elements.jitPreviewGrid.innerHTML = ''
+  elements.jitPreview.style.display = 'none'
+
+  const cellSize = 96
+  let made = 0
+  for (const cp of ctx.holdout) {
+    if (batchCancelRequested) return false
+    const contentImage = ctx.contentRaster.renderTensor(cp)
+    const refs = pickRefsFor(cp, ctx.train)
+    const styleImage =
+      refs.length > 0 ? ctx.userRaster.renderStyleImage(refs) : null
+    if (!contentImage || !styleImage) continue
+    setZi2ziStatus(
+      `Generating style check ${made + 1}/${ctx.holdout.length} ('${String.fromCodePoint(cp)}')…`,
+    )
+    const { image } = await client.sample({
+      styleImage,
+      contentImage,
+      fontIndex: JIT_FONT_INDEX,
+      steps,
+      cfg: JIT_CFG,
+      seed: JIT_SEED + cp,
+    })
+    const ink = sampleToInk(image, JIT_CONTENT_SIZE)
+
+    const cell = document.createElement('div')
+    cell.style.cssText =
+      'display:flex;flex-direction:column;gap:2px;align-items:center'
+    const real = document.createElement('canvas')
+    real.width = cellSize
+    real.height = cellSize
+    real.style.cssText =
+      'border:1px solid var(--border-color);border-radius:4px'
+    if (ctx.userRaster.renderToCanvas(cp)) {
+      const rctx = real.getContext('2d')!
+      rctx.imageSmoothingEnabled = true
+      rctx.imageSmoothingQuality = 'high'
+      rctx.drawImage(
+        ctx.userRaster.canvasEl,
+        0,
+        0,
+        JIT_CONTENT_SIZE,
+        JIT_CONTENT_SIZE,
+        0,
+        0,
+        cellSize,
+        cellSize,
+      )
+    }
+    const gen = document.createElement('canvas')
+    gen.width = cellSize
+    gen.height = cellSize
+    gen.style.cssText = real.style.cssText
+    const full = document.createElement('canvas')
+    full.width = JIT_CONTENT_SIZE
+    full.height = JIT_CONTENT_SIZE
+    const fctx = full.getContext('2d')!
+    const imgData = fctx.createImageData(JIT_CONTENT_SIZE, JIT_CONTENT_SIZE)
+    for (let i = 0; i < ink.length; i++) {
+      const v = Math.round((1 - ink[i]) * 255) // ink-high -> dark pixels
+      imgData.data[i * 4] = v
+      imgData.data[i * 4 + 1] = v
+      imgData.data[i * 4 + 2] = v
+      imgData.data[i * 4 + 3] = 255
+    }
+    fctx.putImageData(imgData, 0, 0)
+    const gctx = gen.getContext('2d')!
+    gctx.imageSmoothingEnabled = true
+    gctx.imageSmoothingQuality = 'high'
+    gctx.drawImage(
+      full,
+      0,
+      0,
+      JIT_CONTENT_SIZE,
+      JIT_CONTENT_SIZE,
+      0,
+      0,
+      cellSize,
+      cellSize,
+    )
+    cell.appendChild(real)
+    cell.appendChild(gen)
+    elements.jitPreviewGrid.appendChild(cell)
+    made++
+  }
+  if (batchCancelRequested) return false
+  if (made === 0) {
+    throw new Error('Could not generate style-check glyphs.')
+  }
+
+  elements.jitPreview.style.display = ''
+  setZi2ziStatus('Review the style check, then confirm to fill.')
+  return new Promise<boolean>((resolve) => {
+    jitPreviewResolve = (accepted) => {
+      jitPreviewResolve = null
+      elements.jitPreview.style.display = 'none'
+      resolve(accepted)
+    }
+  })
+}
+
+// Updates the panel's idle status line (saved adapter? device?) — called on
+// mode change and after training.
+async function jitRefreshPanelStatus() {
+  const fontKey = state.managerSelectedChineseFont
+  if (elements.zi2ziModeSelect.value !== 'faithful') {
+    elements.jitPanel.style.display = 'none'
+    return
+  }
+  elements.jitPanel.style.display = ''
+  if (fontKey === 'droid-sans-fallback') {
+    elements.jitStatusLbl.textContent =
+      'Select an uploaded font — the bundled font already covers both scripts.'
+    elements.btnJitRetrain.style.display = 'none'
+    return
+  }
+  try {
+    const { getJitLora } = await import('./db.js')
+    const saved = await getJitLora(fontKey)
+    if (saved) {
+      const when = new Date(saved.trainedAt).toLocaleDateString()
+      elements.jitStatusLbl.textContent = `Style adapter trained (${saved.presetKey}, ${saved.trainChars} glyphs, ${when}). Filling reuses it — retrain to start over.`
+      elements.btnJitRetrain.style.display = ''
+    } else {
+      elements.jitStatusLbl.textContent =
+        'Trains a small adapter on your font in the browser (WebGPU), then generates missing glyphs in its exact style. The model download is ~370 MB on first use.'
+      elements.btnJitRetrain.style.display = 'none'
+    }
+  } catch {
+    elements.btnJitRetrain.style.display = 'none'
+  }
+}
+
+let variantDataPromise: Promise<VariantData> | null = null
+function loadVariantData(): Promise<VariantData> {
+  if (!variantDataPromise) {
+    variantDataPromise = fetch('./data/variants.json').then((res) => {
+      if (!res.ok)
+        throw new Error(
+          'variants.json not found — run "npm run download:opencc"',
+        )
+      return res.json()
+    })
+  }
+  return variantDataPromise
+}
+
+function coveredCodepoints(font: any): Set<number> {
+  const map = font.tables?.cmap?.glyphIndexMap || {}
+  const covered = new Set<number>()
+  for (const key of Object.keys(map)) {
+    if (map[key] > 0) covered.add(Number(key))
+  }
+  return covered
+}
+
+function setZi2ziStatus(msg: string) {
+  state.zi2ziStatus = msg
+  if (elements.zi2ziStatusLbl) elements.zi2ziStatusLbl.textContent = msg
+}
+
+async function ensureZi2ziReady(styleFontKey: string): Promise<void> {
+  setZi2ziStatus('Loading MX-Font model (cached for offline use)…')
+  const ep = await zi2zi.init()
+  if (zi2ziStyleFontKey !== styleFontKey) {
+    const engine = await getChineseFontEngine(styleFontKey)
+    const { chars, tensors } = pickStyleRefs(engine.font, 6)
+    if (tensors.length === 0) {
+      throw new Error(
+        'The selected font has no usable CJK glyphs to use as style references',
+      )
+    }
+    setZi2ziStatus(`Encoding style references: ${chars.join(' ')}`)
+    lastStyleFactors = await zi2zi.setStyle(tensors)
+    zi2ziStyleFontKey = styleFontKey
+  }
+  setZi2ziStatus(`Model ready (${ep === 'webgpu' ? 'GPU accelerated' : 'CPU'})`)
+}
+
+// Grows the worker pool for batch generation and keeps every sibling's style
+// factors in sync with the seed client's.
+async function ensureZi2ziPool(): Promise<number> {
+  const size = await zi2ziPool.grow(lastStyleFactors)
+  if (
+    zi2ziPoolStyleFontKey !== zi2ziStyleFontKey &&
+    lastStyleFactors &&
+    size > 1
+  ) {
+    await zi2ziPool.setStyleAll(lastStyleFactors)
+  }
+  zi2ziPoolStyleFontKey = zi2ziStyleFontKey
+  return size
+}
+
+// Invalidate the cached style factors when the style-source font changes
+function invalidateZi2ziStyle(fontKey: string) {
+  if (zi2ziStyleFontKey === fontKey) zi2ziStyleFontKey = null
+}
+
+async function generateGlyphInk(
+  char: string,
+  client: Zi2ziClient = zi2zi,
+): Promise<Float32Array> {
+  const refEngine = await getChineseFontEngine('droid-sans-fallback')
+  const content = renderGlyphTensor(refEngine.font, char)
+  if (!content) {
+    throw new Error(`Reference font has no outline for '${char}'`)
+  }
+  return client.generate(content)
+}
+
+function renderInkToCanvas(ink: Float32Array, canvas: HTMLCanvasElement) {
+  const ctx = canvas.getContext('2d')!
+  const imgData = ctx.createImageData(MODEL_SIZE, MODEL_SIZE)
+  for (let i = 0; i < ink.length; i++) {
+    const val = Math.min(255, Math.max(0, Math.round(ink[i] * 255)))
+    imgData.data[i * 4] = val
+    imgData.data[i * 4 + 1] = val
+    imgData.data[i * 4 + 2] = val
+    imgData.data[i * 4 + 3] = 255
+  }
+  ctx.putImageData(imgData, 0, 0)
+}
+
+function retraceAndPreview() {
+  if (!lastGenerated) return
+  const svgPath = traceGrayscaleImage(
+    lastGenerated.ink,
+    MODEL_SIZE,
+    MODEL_SIZE,
+    state.zi2ziThreshold,
+    state.zi2ziSmoothing,
+  )
+  state.zi2ziGeneratedSvg = svgPath
+  state.zi2ziGeneratedChar = lastGenerated.char
+
+  const isCustomFont =
+    state.managerSelectedChineseFont !== 'droid-sans-fallback'
+  if (svgPath) {
+    elements.zi2ziSvgRender.innerHTML = `<path d="${svgPath}" />`
+    elements.btnZi2ziInject.disabled = !isCustomFont
+  } else {
+    elements.zi2ziSvgRender.innerHTML =
+      '<text x="14" y="72" fill="var(--text-secondary)" font-size="16">Empty</text>'
+    elements.btnZi2ziInject.disabled = true
+  }
+}
+
+// Finds the codepoint of an existing variant counterpart in the font, used to
+// anchor the metrics of injected glyphs (and as alias fill target).
+async function findCounterpartCp(
+  char: string,
+  font: any,
+): Promise<number | null> {
+  const data = await loadVariantData()
+  const covered = coveredCodepoints(font)
+  for (const candidates of [data.s2t[char], data.t2s[char]]) {
+    for (const cand of candidates || []) {
+      if (cand === char) continue
+      const cp = cand.codePointAt(0)!
+      if (covered.has(cp)) return cp
+    }
+  }
+  return null
+}
+
+async function updateChineseFontCoverageInfo(font: any) {
+  if (!elements.chineseFontCoverageLbl) return
+  try {
+    const data = await loadVariantData()
+    const covered = coveredCodepoints(font)
+    const summary = summarizeCoverage(covered, data)
+    elements.chineseFontCoverageLbl.textContent =
+      `${summary.simplifiedPresent} simplified / ${summary.traditionalPresent} traditional mapped chars; ` +
+      `fillable: ${summary.s2tFillable} simplified, ${summary.t2sFillable} traditional`
+  } catch {
+    elements.chineseFontCoverageLbl.textContent = 'variant data unavailable'
+  }
+}
+
+function setupZi2ziEvents() {
+  elements.rangeZi2ziThreshold.addEventListener('input', () => {
+    state.zi2ziThreshold = parseInt(elements.rangeZi2ziThreshold.value)
+    elements.valZi2ziThreshold.textContent = state.zi2ziThreshold.toString()
+    retraceAndPreview()
+  })
+
+  elements.rangeZi2ziSmoothing.addEventListener('input', () => {
+    state.zi2ziSmoothing = parseFloat(elements.rangeZi2ziSmoothing.value)
+    elements.valZi2ziSmoothing.textContent = state.zi2ziSmoothing.toFixed(1)
+    retraceAndPreview()
+  })
+
+  elements.zi2ziInputChar.addEventListener('input', () => {
+    elements.zi2ziSrcPreview.textContent = elements.zi2ziInputChar.value.trim()
+  })
+
+  elements.btnZi2ziGenerate.addEventListener('click', async () => {
+    const char = [...elements.zi2ziInputChar.value.trim()][0]
+    if (!char) return
+
+    elements.btnZi2ziGenerate.disabled = true
+    elements.btnZi2ziGenerate.innerHTML =
+      '<i class="fa-solid fa-circle-notch fa-spin"></i> Generating…'
+    try {
+      await ensureZi2ziReady(state.managerSelectedChineseFont)
+      const ink = await generateGlyphInk(char)
+      lastGenerated = { char, ink }
+      renderInkToCanvas(ink, elements.zi2ziCanvasOutput)
+      retraceAndPreview()
+      setZi2ziStatus(
+        `Generated '${char}' in the style of ${state.managerSelectedChineseFont}`,
+      )
+    } catch (err: any) {
+      console.error('zi2zi generation failed:', err)
+      setZi2ziStatus(`Generation failed: ${err.message}`)
+    } finally {
+      elements.btnZi2ziGenerate.disabled = false
+      elements.btnZi2ziGenerate.innerHTML =
+        '<i class="fa-solid fa-wand-magic-sparkles"></i> Generate Stylized Glyph'
+    }
+  })
+
+  elements.btnZi2ziInject.addEventListener('click', async () => {
+    const fontKey = state.managerSelectedChineseFont
+    if (fontKey === 'droid-sans-fallback') return
+    if (!state.zi2ziGeneratedChar || !state.zi2ziGeneratedSvg) return
+
+    try {
+      clearPinyinLogs()
+      showPinyinStatus(
+        `Injecting generated glyph '${state.zi2ziGeneratedChar}'…`,
+        true,
+      )
+
+      const { getChineseFont, saveChineseFont } = await import('./db.js')
+      const fontEntry = await getChineseFont(fontKey)
+      if (!fontEntry) throw new Error('Selected Chinese font not found.')
+
+      const engine = await getChineseFontEngine(fontKey)
+      const cp = state.zi2ziGeneratedChar.codePointAt(0)!
+      const targetCp = await findCounterpartCp(
+        state.zi2ziGeneratedChar,
+        engine.font,
+      )
+
+      const { patchChineseFontInBrowser } = await import('./compiler.js')
+      const updatedBytes = await patchChineseFontInBrowser(
+        fontEntry.ttf,
+        {
+          aliases: [],
+          glyphs: [{ cp, svgPath: state.zi2ziGeneratedSvg, targetCp }],
+        },
+        (msg) => showPinyinStatus(msg.trim(), true),
+      )
+
+      await saveChineseFont({
+        ...fontEntry,
+        ttf: updatedBytes,
+        isPatched: true,
+        timestamp: Date.now(),
+      })
+      delete chineseFontEngines[fontKey]
+      invalidateZi2ziStyle(fontKey)
+      if (state.chineseFont === fontKey) localFontEngine = null
+
+      showPinyinStatus(
+        `Glyph '${state.zi2ziGeneratedChar}' injected into ${fontKey}!`,
+        false,
+      )
+      setTimeout(() => showPinyinStatus('', false), 3000)
+      await refreshChineseFontsDropdown(fontKey)
+      updateUI()
+    } catch (err: any) {
+      console.error('Injection failed:', err)
+      showPinyinStatus(`Injection failed: ${err.message}`, false)
+    }
+  })
+
+  elements.btnZi2ziBatch.addEventListener('click', async () => {
+    if (elements.btnZi2ziBatch.dataset.running === '1') {
+      batchCancelRequested = true
+      elements.btnZi2ziBatch.innerHTML = 'Cancelling…'
+      // a pending style-check gate counts as cancelled too
+      jitPreviewResolve?.(false)
+      return
+    }
+    const fontKey = state.managerSelectedChineseFont
+    if (fontKey === 'droid-sans-fallback') {
+      alert(
+        'Upload and select a custom Chinese font first — the bundled font already covers both scripts.',
+      )
+      return
+    }
+    await runBatchFill(fontKey)
+  })
+
+  elements.zi2ziModeSelect.addEventListener('change', () => {
+    jitRefreshPanelStatus()
+  })
+  elements.btnJitRetrain.addEventListener('click', async () => {
+    const fontKey = state.managerSelectedChineseFont
+    if (
+      !confirm(
+        'Discard the saved style adapter for this font and retrain from scratch on the next fill?',
+      )
+    )
+      return
+    const { deleteJitLora } = await import('./db.js')
+    await deleteJitLora(fontKey)
+    if (jitReadyFontKey === fontKey) jitReadyFontKey = null
+    if (jitActiveSets?.fontKey === fontKey) jitActiveSets = null
+    await jitRefreshPanelStatus()
+  })
+  elements.btnJitCancelTrain.addEventListener('click', () => {
+    elements.jitTrainLbl.textContent = 'Stopping after the current step…'
+    jitClient?.abort().catch(() => {})
+  })
+  elements.btnJitAccept.addEventListener('click', () => {
+    jitPreviewResolve?.(true)
+  })
+  elements.btnJitReject.addEventListener('click', () => {
+    jitPreviewResolve?.(false)
+  })
+  jitRefreshPanelStatus()
+}
+
+async function runBatchFill(fontKey: string) {
+  const mode = elements.zi2ziModeSelect.value as 'ai' | 'alias' | 'faithful'
+  const direction = elements.zi2ziDirectionSelect.value as
+    | FillDirection
+    | 'auto'
+
+  try {
+    const engine = await getChineseFontEngine(fontKey)
+    const data = await loadVariantData()
+    const covered = coveredCodepoints(engine.font)
+    const plan = planVariantFill(covered, data, direction)
+
+    if (plan.items.length === 0) {
+      setZi2ziStatus(
+        'No fillable characters found — the font may already cover both scripts.',
+      )
+      return
+    }
+
+    const dirLabel = plan.direction === 's2t' ? 'simplified' : 'traditional'
+    const modeLabel =
+      mode === 'ai'
+        ? 'AI style transfer (generated glyph shapes)'
+        : mode === 'faithful'
+          ? 'style-faithful AI (trains on this font first)'
+          : 'variant mapping (reuse counterpart glyphs, exact style)'
+    let estimate = ''
+    if (mode === 'ai') {
+      estimate = `\n\nEstimated time: ~${Math.ceil((plan.items.length * 2) / 60)} min.`
+    } else if (mode === 'faithful') {
+      const perGlyphSec = jitSamplerSteps() === 8 ? 6 : 13
+      const genMin = Math.ceil((plan.items.length * perGlyphSec) / 60)
+      const { getJitLora } = await import('./db.js')
+      const saved = await getJitLora(fontKey)
+      estimate = saved
+        ? `\n\nUses the saved style adapter. Estimated generation: ~${genMin} min (cancel anytime — partial fills are saved).`
+        : `\n\nTrains on your font first (see Training Effort), then a style check, then ~${genMin} min of generation. Cancel anytime — partial fills are saved.`
+    }
+    if (
+      !confirm(
+        `Fill ${plan.items.length} missing ${dirLabel} characters using ${modeLabel}?` +
+          estimate,
+      )
+    ) {
+      return
+    }
+
+    batchCancelRequested = false
+    elements.btnZi2ziBatch.dataset.running = '1'
+    elements.btnZi2ziBatch.innerHTML = '<i class="fa-solid fa-stop"></i> Cancel'
+    // switching font/mode/preset mid-run would hide the live controls
+    // (Stop Training, Accept/Discard) and desync the flow's snapshot
+    elements.zi2ziModeSelect.disabled = true
+    elements.managerChineseFontSelect.disabled = true
+    elements.jitPresetSelect.disabled = true
+    clearPinyinLogs()
+
+    const spec: import('./compiler.js').ChineseFontPatchSpec = {
+      aliases: [],
+      glyphs: [],
+    }
+    let aliasFallbacks = 0
+
+    if (mode === 'alias') {
+      spec.aliases = plan.items.map((item) => ({
+        cp: item.cp,
+        toCp: item.counterpartCp,
+      }))
+      setZi2ziStatus(
+        `Mapping ${spec.aliases.length} codepoints to counterpart glyphs…`,
+      )
+    } else if (mode === 'faithful') {
+      const trained = await jitEnsureTrained(fontKey)
+      await jitRefreshPanelStatus()
+      if (!trained) {
+        setZi2ziStatus('Style-faithful fill cancelled.')
+        return
+      }
+      const accepted = await jitPreviewGate(fontKey)
+      if (!accepted) {
+        setZi2ziStatus(
+          batchCancelRequested
+            ? 'Style-faithful fill cancelled.'
+            : 'Style check discarded — adjust Training Effort and retrain if the style is off.',
+        )
+        return
+      }
+      // warm Pyodide while glyphs generate so the patch step starts instantly
+      import('./compiler.js').then((m) => m.prewarmPyodide()).catch(() => {})
+      const client = await ensureJitInit()
+      const genCtx = await jitBuildContext(fontKey)
+      const steps = jitSamplerSteps()
+      let completed = 0
+      for (const item of plan.items) {
+        if (batchCancelRequested) break
+        try {
+          const contentImage = genCtx.contentRaster.renderTensor(item.cp)
+          if (!contentImage)
+            throw new Error('content font has no outline for this character')
+          const refs = pickRefsFor(item.cp, genCtx.train)
+          const styleImage =
+            refs.length > 0 ? genCtx.userRaster.renderStyleImage(refs) : null
+          if (!styleImage)
+            throw new Error('could not assemble style references')
+          const { image } = await client.sample({
+            styleImage,
+            contentImage,
+            fontIndex: JIT_FONT_INDEX,
+            steps,
+            cfg: JIT_CFG,
+            seed: JIT_SEED + item.cp,
+          })
+          const ink = sampleToInk(image, JIT_CONTENT_SIZE)
+          const svgPath = traceGrayscaleImage(
+            ink,
+            JIT_CONTENT_SIZE,
+            JIT_CONTENT_SIZE,
+            state.zi2ziThreshold,
+            state.zi2ziSmoothing,
+            // offline-validated 256px params: speckle floor scales with
+            // pixel area, and diffusion edges want the looser 0.8 fit
+            { minLoopArea: 8.0, fitError: 0.8 },
+          )
+          if (!svgPath) throw new Error('empty outline after vectorization')
+          spec.glyphs.push({
+            cp: item.cp,
+            svgPath,
+            targetCp: item.counterpartCp,
+          })
+        } catch (err: any) {
+          console.warn(
+            `Style-faithful generation failed for '${item.char}', falling back to variant mapping:`,
+            err,
+          )
+          spec.aliases.push({ cp: item.cp, toCp: item.counterpartCp })
+          aliasFallbacks++
+        }
+        completed++
+        setZi2ziStatus(
+          `[${completed}/${plan.items.length}] Generating style-faithful glyphs… latest: '${item.char}'`,
+        )
+        updateBatchProgress(completed, plan.items.length)
+      }
+    } else {
+      await ensureZi2ziReady(fontKey)
+      // warm Pyodide while glyphs generate so the patch step starts instantly
+      import('./compiler.js').then((m) => m.prewarmPyodide()).catch(() => {})
+      const poolSize = await ensureZi2ziPool()
+      let completed = 0
+      await zi2ziPool.run(
+        plan.items.length,
+        async (client, i) => {
+          const item = plan.items[i]
+          try {
+            const ink = await generateGlyphInk(item.char, client)
+            const svgPath = traceGrayscaleImage(
+              ink,
+              MODEL_SIZE,
+              MODEL_SIZE,
+              state.zi2ziThreshold,
+              state.zi2ziSmoothing,
+            )
+            if (!svgPath) throw new Error('empty outline after vectorization')
+            spec.glyphs.push({
+              cp: item.cp,
+              svgPath,
+              targetCp: item.counterpartCp,
+            })
+            lastGenerated = { char: item.char, ink }
+            // preview rendering costs a few ms per glyph (putImageData +
+            // re-trace); throttle it so fast EPs aren't bottlenecked by DOM
+            const now = performance.now()
+            if (now - lastBatchPreviewAt > 250) {
+              lastBatchPreviewAt = now
+              renderInkToCanvas(ink, elements.zi2ziCanvasOutput)
+              retraceAndPreview()
+            }
+          } catch (err: any) {
+            console.warn(
+              `Generation failed for '${item.char}', falling back to variant mapping:`,
+              err,
+            )
+            spec.aliases.push({ cp: item.cp, toCp: item.counterpartCp })
+            aliasFallbacks++
+          }
+          completed++
+          setZi2ziStatus(
+            `[${completed}/${plan.items.length}] Generating glyphs (${poolSize} ${poolSize > 1 ? 'parallel workers' : 'worker'})… latest: '${item.char}'`,
+          )
+          updateBatchProgress(completed, plan.items.length)
+        },
+        () => batchCancelRequested,
+      )
+      // make sure the preview reflects the final glyph after throttling
+      if (lastGenerated) {
+        renderInkToCanvas(lastGenerated.ink, elements.zi2ziCanvasOutput)
+        retraceAndPreview()
+      }
+    }
+
+    const totalOps = spec.aliases.length + spec.glyphs.length
+    if (totalOps === 0) {
+      setZi2ziStatus('Batch cancelled — nothing to patch.')
+      return
+    }
+
+    setZi2ziStatus(`Patching font with ${totalOps} characters…`)
+    const { getChineseFont, saveChineseFont } = await import('./db.js')
+    const fontEntry = await getChineseFont(fontKey)
+    if (!fontEntry) throw new Error('Font entry not found')
+
+    const { patchChineseFontInBrowser } = await import('./compiler.js')
+    const updatedBytes = await patchChineseFontInBrowser(
+      fontEntry.ttf,
+      spec,
+      (msg) => showPinyinStatus(msg.trim(), true),
+    )
+
+    await saveChineseFont({
+      ...fontEntry,
+      ttf: updatedBytes,
+      isPatched: true,
+      timestamp: Date.now(),
+    })
+    delete chineseFontEngines[fontKey]
+    invalidateZi2ziStyle(fontKey)
+    if (state.chineseFont === fontKey) localFontEngine = null
+
+    const summaryParts = [
+      spec.glyphs.length ? `${spec.glyphs.length} AI-generated` : '',
+      spec.aliases.length ? `${spec.aliases.length} variant-mapped` : '',
+      plan.missingNoCounterpart.length
+        ? `${plan.missingNoCounterpart.length} skipped (no counterpart in font)`
+        : '',
+      aliasFallbacks ? `(${aliasFallbacks} fell back to mapping)` : '',
+    ].filter(Boolean)
+    setZi2ziStatus(
+      `${batchCancelRequested ? 'Cancelled — partial fill saved. ' : 'Done! '}${summaryParts.join(', ')}.`,
+    )
+    showPinyinStatus('', false)
+    await refreshChineseFontsDropdown(fontKey)
+    updateUI()
+  } catch (err: any) {
+    console.error('Batch fill failed:', err)
+    setZi2ziStatus(`Batch fill failed: ${err.message}`)
+  } finally {
+    batchCancelRequested = false
+    elements.btnZi2ziBatch.dataset.running = ''
+    elements.btnZi2ziBatch.innerHTML =
+      '<i class="fa-solid fa-fill-drip"></i> Fill Missing Characters'
+    elements.zi2ziModeSelect.disabled = false
+    elements.managerChineseFontSelect.disabled = false
+    elements.jitPresetSelect.disabled = false
+    updateBatchProgress(0, 0)
+  }
+}
+
+function updateBatchProgress(done: number, total: number) {
+  if (!elements.zi2ziProgressBar) return
+  if (total === 0) {
+    elements.zi2ziProgressBar.style.width = '0%'
+    elements.zi2ziProgressLbl.textContent = ''
+  } else {
+    elements.zi2ziProgressBar.style.width = `${Math.round((done / total) * 100)}%`
+    elements.zi2ziProgressLbl.textContent = `${done} / ${total}`
+  }
 }
 
 // Start initialization after all declarations are evaluated

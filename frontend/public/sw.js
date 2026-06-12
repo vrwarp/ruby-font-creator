@@ -1,7 +1,8 @@
-const CACHE_NAME = 'ruby-font-creator-cache-v3'
+const CACHE_NAME = 'ruby-font-creator-cache-v6'
 
-// App shell plus the assets every preview/build needs. Pyodide assets are
-// intentionally not pre-cached (≈25 MB) — they are cached on first use below.
+// App shell plus the assets every preview/build needs. Pyodide assets and the
+// MX-Font ONNX models are intentionally not pre-cached (≈25 MB / ≈24 MB) —
+// they are cached on first use below.
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -9,6 +10,7 @@ const ASSETS_TO_CACHE = [
   './icon-192.png',
   './icon-512.png',
   './data.json',
+  './data/variants.json',
   './resources/fonts/DroidSansFallbackFull.ttf',
   './resources/fonts/PT_Sans-Narrow-Web-Regular.ttf',
   './resources/fonts/PT_Sans-Narrow-Web-Bold.ttf',
@@ -78,12 +80,16 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(event.request.url)
 
-  // Cache-First strategy for Pyodide assets, fonts, and package wheels
+  // Cache-First strategy for Pyodide assets, ONNX assets, models, fonts, and package wheels
   if (
     url.pathname.includes('/pyodide/') ||
+    url.pathname.includes('/onnx/') ||
+    url.pathname.includes('/models/') ||
     url.pathname.endsWith('.ttf') ||
     url.pathname.endsWith('.whl') ||
-    url.pathname.endsWith('.zip')
+    url.pathname.endsWith('.zip') ||
+    url.pathname.endsWith('.onnx') ||
+    url.pathname.endsWith('.wasm')
   ) {
     cacheFirst(event)
     return

@@ -1,0 +1,160 @@
+diff --git a/node_modules/@jax-js/jax/dist/backend-DZvR7mZV.js b/node_modules/@jax-js/jax/dist/backend-DZvR7mZV.js
+index 3720ac6..d79994b 100644
+--- a/node_modules/@jax-js/jax/dist/backend-DZvR7mZV.js
++++ b/node_modules/@jax-js/jax/dist/backend-DZvR7mZV.js
+@@ -2693,7 +2693,7 @@ var WasmAllocator = class {
+ 		const ptr = this.#headPtr;
+ 		size = size + 63 & -64;
+ 		this.#headPtr += size;
+-		if (ptr + size > this.#memory.buffer.byteLength) this.#memory.grow((ptr + size + 65535 >> 16) - (this.#memory.buffer.byteLength >> 16));
++		if (ptr + size > this.#memory.buffer.byteLength) this.#memory.grow(Math.ceil((ptr + size) / 65536) - this.#memory.buffer.byteLength / 65536);
+ 		return ptr;
+ 	}
+ 	#findSizeClass(size) {
+diff --git a/node_modules/@jax-js/jax/dist/index.cjs b/node_modules/@jax-js/jax/dist/index.cjs
+index 9bd2797..c558d3d 100644
+--- a/node_modules/@jax-js/jax/dist/index.cjs
++++ b/node_modules/@jax-js/jax/dist/index.cjs
+@@ -4757,6 +4757,40 @@ function unbroadcast(x, target) {
+ 	if (!require_backend.deepEqual(result.shape, shape$1)) result = broadcast(result, shape$1, unsqueeze);
+ 	return result;
+ }
++/**
++* Gradient of Primitive.Dot w.r.t. its UndefPrimal side, computed as another
++* fused Dot (multiply + reduce) instead of broadcast + mul + unbroadcast.
++* The naive form materializes the full [out..., K] product, whose byte size
++* exceeds 2**31 for transformer-scale matmuls and overflows buffer offsets on
++* wasm (OOB trap) and WebGPU (NaN gradients via robust buffer access).
++*/
++function fusedDotGrad(ct, undef, conc) {
++	const full = require_backend.generalBroadcast(undef.aval.shape, conc.shape);
++	const n = full.length;
++	const K = full[n - 1];
++	const pad = (s) => [...require_backend.rep(n - s.length, 1), ...s];
++	const pu = pad(undef.aval.shape);
++	const pc = pad(conc.shape);
++	const S = [];
++	const F = [];
++	for (let d = 0; d < n - 1; d++) {
++		if (pu[d] === 1 && full[d] !== 1) S.push(d);
++		else F.push(d);
++	}
++	if (S.length === 0) {
++		const ctB = broadcast(ct, ct.shape.concat(K), [-1]);
++		return unbroadcast(mul(ctB, conc), undef);
++	}
++	const fSizes = F.map((d) => full[d]);
++	const sProd = require_backend.prod(S.map((d) => full[d]));
++	const ctF = reshape$1(transpose$1(ct, [...F, ...S]), [...fSizes, 1, sProd]);
++	const concF = reshape$1(transpose$1(reshape$1(conc, pc), [...F, n - 1, ...S]), [...F.map((d) => pc[d]), K, sProd]);
++	const dxc = dot$2(ctF, concF);
++	const cur = [...F, n - 1, ...S];
++	const invPerm = require_backend.range(n).map((t) => cur.indexOf(t));
++	const dxFull = transpose$1(reshape$1(dxc, [...fSizes, K, ...require_backend.rep(S.length, 1)]), invPerm);
++	return unbroadcast(dxFull, undef);
++}
+ var NonlinearError = class extends TypeError {
+ 	constructor(primitive) {
+ 		super(`Nonlinear operation in backward pass for ${primitive}`);
+@@ -4798,9 +4832,7 @@ const transposeRules = {
+ 	},
+ 	[Primitive.Dot]([ct], [x, y]) {
+ 		if (x instanceof UndefPrimal === y instanceof UndefPrimal) throw new NonlinearError(Primitive.Dot);
+-		const axisSize = require_backend.generalBroadcast(x.aval.shape, y.aval.shape).slice(-1)[0];
+-		ct = broadcast(ct, ct.shape.concat(axisSize), [-1]);
+-		return [x instanceof UndefPrimal ? unbroadcast(mul(ct, y), x) : null, y instanceof UndefPrimal ? unbroadcast(mul(x, ct), y) : null];
++		return x instanceof UndefPrimal ? [fusedDotGrad(ct, x, y), null] : [null, fusedDotGrad(ct, y, x)];
+ 	},
+ 	[Primitive.Conv]([ct], [lhs, rhs], params) {
+ 		if (lhs instanceof UndefPrimal === rhs instanceof UndefPrimal) throw new NonlinearError(Primitive.Conv);
+@@ -7682,7 +7714,13 @@ function relu6(x) {
+ * Reference: https://en.wikipedia.org/wiki/Sigmoid_function
+ */
+ function sigmoid(x) {
+-	return reciprocal(exp(negative(x)).add(1));
++	// numerically stable two-branch form: t = exp(-|x|) ∈ (0,1], so neither
++	// branch nor its derivative ever overflows. The naive 1/(1+exp(-x))
++	// produces exp(-x) = Inf for x < -88, and its autodiff backward then
++	// evaluates 0 * Inf = NaN even though the forward value is correct.
++	x = fudgeArray(x);
++	const t = exp(negative(absolute(x.ref)));
++	return where(x.lessEqual(0), t.ref.div(t.ref.add(1)), reciprocal(t.add(1)));
+ }
+ /**
+ * Softplus activation function:
+diff --git a/node_modules/@jax-js/jax/dist/index.js b/node_modules/@jax-js/jax/dist/index.js
+index 7e54521..8fdc690 100644
+--- a/node_modules/@jax-js/jax/dist/index.js
++++ b/node_modules/@jax-js/jax/dist/index.js
+@@ -4720,6 +4720,45 @@ function unbroadcast(x, target) {
+ 	if (!deepEqual(result.shape, shape$1)) result = broadcast(result, shape$1, unsqueeze);
+ 	return result;
+ }
++/**
++* Gradient of Primitive.Dot w.r.t. its UndefPrimal side, computed as another
++* fused Dot (multiply + reduce) instead of broadcast + mul + unbroadcast.
++* The naive form materializes the full [out..., K] product, whose byte size
++* exceeds 2**31 for transformer-scale matmuls and overflows buffer offsets on
++* wasm (OOB trap) and WebGPU (NaN gradients via robust buffer access).
++*/
++function fusedDotGrad(ct, undef, conc) {
++	const full = generalBroadcast(undef.aval.shape, conc.shape);
++	const n = full.length;
++	const K = full[n - 1];
++	const pad = (s) => [...rep(n - s.length, 1), ...s];
++	const pu = pad(undef.aval.shape);
++	const pc = pad(conc.shape);
++	const S = [];
++	const F = [];
++	for (let d = 0; d < n - 1; d++) {
++		if (pu[d] === 1 && full[d] !== 1) S.push(d);
++		else F.push(d);
++	}
++	if (S.length === 0) {
++		// no out dims to contract; the plain product is already gradient-sized
++		const ctB = broadcast(ct, ct.shape.concat(K), [-1]);
++		return unbroadcast(mul(ctB, conc), undef);
++	}
++	const fSizes = F.map((d) => full[d]);
++	const sProd = prod(S.map((d) => full[d]));
++	// ct [out...] -> [F..., 1 (K slot), prod(S)]
++	const ctF = reshape$1(transpose$1(ct, [...F, ...S]), [...fSizes, 1, sProd]);
++	// conc [..., K] -> [F(conc)..., K, prod(S)]; conc is full-sized on S dims
++	// (S is where undef broadcast, so the other side must supply the size)
++	const concF = reshape$1(transpose$1(reshape$1(conc, pc), [...F, n - 1, ...S]), [...F.map((d) => pc[d]), K, sProd]);
++	const dxc = dot$2(ctF, concF);
++	// restore original axis order with S dims as size 1, then unbroadcast
++	const cur = [...F, n - 1, ...S];
++	const invPerm = range(n).map((t) => cur.indexOf(t));
++	const dxFull = transpose$1(reshape$1(dxc, [...fSizes, K, ...rep(S.length, 1)]), invPerm);
++	return unbroadcast(dxFull, undef);
++}
+ var NonlinearError = class extends TypeError {
+ 	constructor(primitive) {
+ 		super(`Nonlinear operation in backward pass for ${primitive}`);
+@@ -4761,9 +4800,7 @@ const transposeRules = {
+ 	},
+ 	[Primitive.Dot]([ct], [x, y]) {
+ 		if (x instanceof UndefPrimal === y instanceof UndefPrimal) throw new NonlinearError(Primitive.Dot);
+-		const axisSize = generalBroadcast(x.aval.shape, y.aval.shape).slice(-1)[0];
+-		ct = broadcast(ct, ct.shape.concat(axisSize), [-1]);
+-		return [x instanceof UndefPrimal ? unbroadcast(mul(ct, y), x) : null, y instanceof UndefPrimal ? unbroadcast(mul(x, ct), y) : null];
++		return x instanceof UndefPrimal ? [fusedDotGrad(ct, x, y), null] : [null, fusedDotGrad(ct, y, x)];
+ 	},
+ 	[Primitive.Conv]([ct], [lhs, rhs], params) {
+ 		if (lhs instanceof UndefPrimal === rhs instanceof UndefPrimal) throw new NonlinearError(Primitive.Conv);
+@@ -7645,7 +7682,13 @@ function relu6(x) {
+ * Reference: https://en.wikipedia.org/wiki/Sigmoid_function
+ */
+ function sigmoid(x) {
+-	return reciprocal(exp(negative(x)).add(1));
++	// numerically stable two-branch form: t = exp(-|x|) ∈ (0,1], so neither
++	// branch nor its derivative ever overflows. The naive 1/(1+exp(-x))
++	// produces exp(-x) = Inf for x < -88, and its autodiff backward then
++	// evaluates 0 * Inf = NaN even though the forward value is correct.
++	x = fudgeArray(x);
++	const t = exp(negative(absolute(x.ref)));
++	return where(x.lessEqual(0), t.ref.div(t.ref.add(1)), reciprocal(t.add(1)));
+ }
+ /**
+ * Softplus activation function:

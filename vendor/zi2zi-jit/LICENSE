@@ -1,0 +1,74 @@
+MIT License (Software)
+
+Copyright (c) 2026 Yuchen Tian
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+----------------------------------------------------------------
+Font Artifact License Addendum
+Version 1.0
+----------------------------------------------------------------
+
+This Addendum applies to generated font artifacts and derived font products.
+This Addendum does not change the MIT License terms above for the Software
+itself.
+
+1. Definitions
+
+- "Artifacts" means images, glyph samples, intermediates, or other generated
+  outputs produced by running the Software.
+- "Font Product" means any distributed font file, font package, or font family
+  containing one or more glyphs created in whole or in part from Artifacts.
+- "Attributed Character Count" means the number of unique characters (for
+  example, unique Unicode code points) in a distributed Font Product that were
+  created in whole or in part from Artifacts.
+
+2. Permissions
+
+Subject to this Addendum, you may use, copy, modify, distribute, sublicense,
+and sell Artifacts and Font Products for commercial or non-commercial purposes.
+
+3. Attribution Trigger (More Than 200 Characters)
+
+If you distribute a Font Product with an Attributed Character Count greater
+than 200, you must provide attribution that includes:
+
+- the statement: "Created using zi2zi-JiT artifacts"
+- a link to this repository:
+  https://github.com/kaonashi-tyc/zi2zi-JiT
+
+Attribution may appear in documentation, a README, an about page, package
+metadata, marketplace listing, or another reasonably visible location that is
+distributed with or alongside the Font Product.
+
+For Font Products with an Attributed Character Count of 200 or fewer,
+attribution is not required by this Addendum.
+
+4. No Trademark License
+
+This Addendum does not grant any right to use names, logos, or trademarks of
+the licensors except as required for the attribution text in Section 3.
+
+5. Warranty and Liability
+
+Artifacts and Font Products are provided "AS IS", without warranty of any kind,
+express or implied, including but not limited to merchantability, fitness for a
+particular purpose, and non-infringement. In no event shall the licensors be
+liable for any claim, damages, or other liability, whether in contract, tort,
+or otherwise, arising from or in connection with Artifacts or Font Products.

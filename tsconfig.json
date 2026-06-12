@@ -14,6 +14,12 @@
     "declarationMap": true,
     "sourceMap": true
   },
-  "include": ["src/**/*", "index.ts", "test/**/*", "data/chinese/**/*"],
+  "include": [
+    "src/**/*",
+    "index.ts",
+    "test/**/*",
+    "data/chinese/**/*",
+    "frontend/raw-imports.d.ts"
+  ],
   "exclude": ["node_modules", "dist", "build"]
 }

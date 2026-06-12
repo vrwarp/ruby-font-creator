@@ -21,6 +21,18 @@ export default defineConfig({
       path: path.resolve(__dirname, './path-shim.ts'),
     },
   },
+  // keep the dep optimizer away from onnxruntime-web: pre-bundling breaks its
+  // runtime import.meta.url-relative loading of the wasm/mjs binaries
+  optimizeDeps: {
+    exclude: ['onnxruntime-web'],
+  },
+  // the jit worker pulls in @jax-js/jax, whose dynamic backend imports
+  // (webgpu chunk) force code-splitting — impossible under the default
+  // 'iife' worker format. Dev mode already serves module workers, so 'es'
+  // aligns prod with dev; both worker entries use { type: 'module' }.
+  worker: {
+    format: 'es',
+  },
   server: {
     port: 3000,
     open: false,

@@ -6,3 +6,9 @@ package-lock.json
 *.pdf
 resources/fonts/
 frontend/public/pyodide/
+
+# vendored third-party code (MX-Font fork)
+vendor/
+.venv-mxfont/
+# generated data asset (npm run download:opencc)
+frontend/public/data/variants.json
