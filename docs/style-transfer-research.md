@@ -190,6 +190,31 @@ gate rejects — blurred init at round 1, stronger init + content-CFG at round 2
 updates are far too few; Thorough = 720). The preview gate now reports BOTH
 axes: structure k/8 and style cosine vs the content-font baseline.
 
+## 2c. Measured training-scale result (Standard preset, ZCOOL)
+
+Standard retrain under the rescue-only policy (176 chars × 7 epochs × 2 aug
+
+- 25% priors, 385 optimizer updates, preview sampled pure-model at 20 steps;
+  this run's content-font style baseline measured 0.92):
+
+| Adapter                | Structure (pure) | Style match | Visual                                      |
+| ---------------------- | ---------------- | ----------- | ------------------------------------------- |
+| Quick (75 updates)     | 1/8              | ~0.89       | ZCOOL-ish strokes, broken components        |
+| Standard (385 updates) | 2/8              | **0.95**    | convincing ZCOOL stroke style, still broken |
+
+Training scale **fixes style** — 0.95 clears the content-font baseline, and
+the holdout strokes are visually ZCOOL's bold rounded marker style — but
+**barely moves pure-model structure** (1/8 → 2/8), confirming the pooled-
+content-vector ceiling (§1). Consequences:
+
+- The two axes decouple cleanly: style is a training problem (solved at
+  Standard scale), structure is an inference/gating problem.
+- With a ~2/8 pure pass rate, most bulk-fill glyphs will take the anchor
+  rescue path and inherit its style penalty — so the gate+rescue pipeline is
+  a floor on correctness, not a route to a fully style-faithful fill.
+- Open question for Thorough (720 updates): how far structure climbs at
+  ~2× scale. Style needs no further headroom.
+
 ## 3. Experiment harness & priority order
 
 **Offline A/B on MPS replicating browser scale** (~10–15 min/arm at ~0.5 s/step):
