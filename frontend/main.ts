@@ -2,6 +2,7 @@
 import TextToSVG from 'text-to-svg'
 import opentype from 'opentype.js'
 import ruby from '../src/ruby.js'
+import layout from '../src/layouts.js'
 import {
   getAlternateGlyphEntries,
   POLYPHONIC_ENTRIES,
@@ -310,7 +311,7 @@ const state = {
   customPinyin: '',
 
   // Layout & Alignment
-  placement: 'top', // top | bottom
+  placement: 'top', // top | bottom | right (right = pinyin column rotated 90° CW)
   pinyinFont: 'droid-sans', // droid-sans | pt-sans-regular | pt-sans-bold
   chineseFont: 'droid-sans-fallback',
   managerSelectedFont: 'droid-sans',
@@ -675,7 +676,11 @@ function loadStateFromUrl() {
   const readBool = (key: string, fallback: boolean) =>
     params.has(key) ? params.get(key) === '1' : fallback
 
-  state.placement = readString('placement', ['top', 'bottom'], state.placement)
+  state.placement = readString(
+    'placement',
+    ['top', 'bottom', 'right'],
+    state.placement,
+  )
   if (params.has('pinyinFont')) state.pinyinFont = params.get('pinyinFont')!
   state.showGuides = readBool('showGuides', state.showGuides)
   state.characterWidth = readInt(
@@ -1813,45 +1818,69 @@ async function getPreviews(
     const baseEngine = await getLocalFontEngine()
     const annoEngine = await getAnnotationFontEngine(state.pinyinFont)
     return glyphs.map((char) => {
-      const isPlacementTop = state.placement === 'top'
       const characterWidth = state.characterWidth || 80
       const centerVal = characterWidth / 2
-      const baseLineY = isPlacementTop ? 92 : -4
-      const baseAnchor = isPlacementTop ? 'bottom center' : 'top center'
-      const annoLineY = isPlacementTop
-        ? -4 - state.verticalOffset
-        : 92 + state.verticalOffset
-      const annoAnchor = isPlacementTop ? 'top center' : 'bottom center'
+      const isPlacementRight = state.placement === 'right'
+      const isPlacementTop = state.placement === 'top'
 
-      const baseSvgPath = ruby.getBase(baseEngine, char.glyph, {
-        x: centerVal,
-        y: baseLineY,
-        fontSize: 56,
-        anchor: baseAnchor,
-        attributes: {
-          fill: 'currentColor',
-          id: 'glyph',
-        },
-      })
+      let baseSvgPath: string
+      let pinyinPaths: string
 
-      const pinyinFontSize = Math.round(
-        56 * (state.pinyinSize / state.hanziSize),
-      )
+      if (isPlacementRight) {
+        // Glyph on the left, pinyin column rotated 90° CW on the right. Reuse
+        // the shared layout helpers so the preview matches the CLI/browser
+        // build exactly; micro-typography sliders still drive the pinyin fit.
+        const canvas = { width: characterWidth, height: 80 }
+        baseSvgPath = ruby.getBase(baseEngine, char.glyph, {
+          ...layout.base.left(canvas),
+          attributes: { fill: 'currentColor', id: 'glyph' },
+        })
+        pinyinPaths = ruby.getAnnotation(annoEngine, char.ruby, {
+          ...layout.annotation.right(canvas),
+          attributes: { fill: 'currentColor', id: 'annotation' },
+          squeeze: state.opticalSqueeze,
+          tracking: state.letterTracking,
+          weight: state.fontWeight,
+          strategy: state.strategy,
+        })
+      } else {
+        const baseLineY = isPlacementTop ? 92 : -4
+        const baseAnchor = isPlacementTop ? 'bottom center' : 'top center'
+        const annoLineY = isPlacementTop
+          ? -4 - state.verticalOffset
+          : 92 + state.verticalOffset
+        const annoAnchor = isPlacementTop ? 'top center' : 'bottom center'
 
-      const pinyinPaths = ruby.getAnnotation(annoEngine, char.ruby, {
-        x: centerVal,
-        y: annoLineY,
-        fontSize: pinyinFontSize,
-        anchor: annoAnchor,
-        attributes: {
-          fill: 'currentColor',
-          id: 'annotation',
-        },
-        squeeze: state.opticalSqueeze,
-        tracking: state.letterTracking,
-        weight: state.fontWeight,
-        strategy: state.strategy,
-      })
+        baseSvgPath = ruby.getBase(baseEngine, char.glyph, {
+          x: centerVal,
+          y: baseLineY,
+          fontSize: 56,
+          anchor: baseAnchor,
+          attributes: {
+            fill: 'currentColor',
+            id: 'glyph',
+          },
+        })
+
+        const pinyinFontSize = Math.round(
+          56 * (state.pinyinSize / state.hanziSize),
+        )
+
+        pinyinPaths = ruby.getAnnotation(annoEngine, char.ruby, {
+          x: centerVal,
+          y: annoLineY,
+          fontSize: pinyinFontSize,
+          anchor: annoAnchor,
+          attributes: {
+            fill: 'currentColor',
+            id: 'annotation',
+          },
+          squeeze: state.opticalSqueeze,
+          tracking: state.letterTracking,
+          weight: state.fontWeight,
+          strategy: state.strategy,
+        })
+      }
 
       const svgContent = `<svg width="${characterWidth}" height="80" viewBox="0 0 ${characterWidth} 80" xmlns="http://www.w3.org/2000/svg">
         ${baseSvgPath}
@@ -2171,24 +2200,74 @@ async function renderSandbox() {
       svgEl.setAttribute('height', '100%')
       svgEl.style.overflow = 'visible'
 
-      const isPlacementTop = state.placement === 'top'
-      const minY = isPlacementTop
-        ? Math.min(-15 - state.verticalOffset, 0)
-        : -70
-      const maxY = isPlacementTop
-        ? 100
-        : Math.max(105 + state.verticalOffset, 90)
-      const heightY = maxY - minY
-      svgEl.setAttribute(
-        'viewBox',
-        `0 ${minY} ${state.characterWidth} ${heightY}`,
-      )
+      if (state.placement === 'right') {
+        // Glyph + rotated pinyin column both sit within the canvas bounds; a
+        // little vertical padding keeps long columns from touching the edge.
+        svgEl.setAttribute('viewBox', `0 -5 ${state.characterWidth} 90`)
+      } else {
+        const isPlacementTop = state.placement === 'top'
+        const minY = isPlacementTop
+          ? Math.min(-15 - state.verticalOffset, 0)
+          : -70
+        const maxY = isPlacementTop
+          ? 100
+          : Math.max(105 + state.verticalOffset, 90)
+        const heightY = maxY - minY
+        svgEl.setAttribute(
+          'viewBox',
+          `0 ${minY} ${state.characterWidth} ${heightY}`,
+        )
+      }
     }
   }
 }
 
 // Generate the configuration TypeScript code block
 function generateCLIConfig() {
+  // The rotated "right" placement reuses the shared layout helpers (matching
+  // src/config/right-downward.ts) instead of inline x/y literals, since its
+  // geometry is baked into the path by ruby.getAnnotation.
+  const layoutBlock =
+    state.placement === 'right'
+      ? `  get layout() {
+    return {
+      base: layout.base.left(this.canvas),
+      annotation: {
+        ...layout.annotation.right(this.canvas),
+        squeeze: ${state.opticalSqueeze},
+        tracking: ${state.letterTracking.toFixed(3)},
+        weight: ${state.fontWeight},
+        strategy: '${state.strategy}',
+      },
+    }
+  }`
+      : `  get layout() {
+    return {
+      base: {
+        x: this.canvas.width / 2,
+        y: ${state.placement === 'top' ? 'this.canvas.height + 12' : '-4'},
+        fontSize: 56,
+        anchor: '${state.placement === 'top' ? 'bottom center' : 'top center'}',
+        attributes: { fill: 'black', stroke: 'black', id: 'glyph' }
+      },
+      annotation: {
+        x: this.canvas.width / 2,
+        y: ${state.placement === 'top' ? `-4 - ${state.verticalOffset}` : `this.canvas.height + 12 + ${state.verticalOffset}`},
+        fontSize: ${Math.round(56 * (state.pinyinSize / state.hanziSize))},
+        anchor: '${state.placement === 'top' ? 'top center' : 'bottom center'}',
+        attributes: {
+          fill: 'black',
+          stroke: 'black',
+          id: 'annotation',
+        },
+        squeeze: ${state.opticalSqueeze},
+        tracking: ${state.letterTracking.toFixed(3)},
+        weight: ${state.fontWeight},
+        strategy: '${state.strategy}'
+      }
+    }
+  }`
+
   const code = `import path from 'node:path'
 import layout from '../layouts.js'
 import type { BuildConfig } from '../types.js'
@@ -2221,32 +2300,7 @@ const config: BuildConfig = {
   formats: ['ttf', 'woff2'],
   inputFiles: './build/**/*.svg',
   workingDir: path.resolve(projectRoot, '../../build/svg'),
-  get layout() {
-    return {
-      base: {
-        x: this.canvas.width / 2,
-        y: ${state.placement === 'top' ? 'this.canvas.height + 12' : '-4'},
-        fontSize: 56,
-        anchor: '${state.placement === 'top' ? 'bottom center' : 'top center'}',
-        attributes: { fill: 'black', stroke: 'black', id: 'glyph' }
-      },
-      annotation: {
-        x: this.canvas.width / 2,
-        y: ${state.placement === 'top' ? `-4 - ${state.verticalOffset}` : `this.canvas.height + 12 + ${state.verticalOffset}`},
-        fontSize: ${Math.round(56 * (state.pinyinSize / state.hanziSize))},
-        anchor: '${state.placement === 'top' ? 'top center' : 'bottom center'}',
-        attributes: {
-          fill: 'black',
-          stroke: 'black',
-          id: 'annotation',
-        },
-        squeeze: ${state.opticalSqueeze},
-        tracking: ${state.letterTracking.toFixed(3)},
-        weight: ${state.fontWeight},
-        strategy: '${state.strategy}'
-      }
-    }
-  }
+${layoutBlock}
 }
 
 export default config
@@ -2333,30 +2387,48 @@ async function triggerFontBuild() {
     const calculatedPinyinFontSize = Math.round(
       56 * (state.pinyinSize / state.hanziSize),
     )
+    const canvasDims = { width: state.characterWidth, height: 80 }
+    const layoutConfig =
+      state.placement === 'right'
+        ? {
+            // Glyph left, pinyin column rotated 90° CW on the right. Shared
+            // helpers keep this identical to the preview and the CLI config.
+            base: layout.base.left(canvasDims),
+            annotation: {
+              ...layout.annotation.right(canvasDims),
+              squeeze: state.opticalSqueeze,
+              tracking: state.letterTracking,
+              weight: state.fontWeight,
+              strategy: state.strategy,
+            },
+          }
+        : {
+            base: {
+              x: state.characterWidth / 2,
+              y: state.placement === 'top' ? 92 : -4,
+              fontSize: 56,
+              anchor:
+                state.placement === 'top' ? 'bottom center' : 'top center',
+            },
+            annotation: {
+              x: state.characterWidth / 2,
+              y:
+                state.placement === 'top'
+                  ? -4 - state.verticalOffset
+                  : 92 + state.verticalOffset,
+              fontSize: calculatedPinyinFontSize,
+              anchor:
+                state.placement === 'top' ? 'top center' : 'bottom center',
+              squeeze: state.opticalSqueeze,
+              tracking: state.letterTracking,
+              weight: state.fontWeight,
+              strategy: state.strategy,
+            },
+          }
     const config = {
-      canvas: { width: state.characterWidth, height: 80 },
+      canvas: canvasDims,
       fontName: sanitizedFontName,
-      layout: {
-        base: {
-          x: state.characterWidth / 2,
-          y: state.placement === 'top' ? 92 : -4,
-          fontSize: 56,
-          anchor: state.placement === 'top' ? 'bottom center' : 'top center',
-        },
-        annotation: {
-          x: state.characterWidth / 2,
-          y:
-            state.placement === 'top'
-              ? -4 - state.verticalOffset
-              : 92 + state.verticalOffset,
-          fontSize: calculatedPinyinFontSize,
-          anchor: state.placement === 'top' ? 'top center' : 'bottom center',
-          squeeze: state.opticalSqueeze,
-          tracking: state.letterTracking,
-          weight: state.fontWeight,
-          strategy: state.strategy,
-        },
-      },
+      layout: layoutConfig,
     } as any
 
     const result = await compileFontInBrowser(

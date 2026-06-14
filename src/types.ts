@@ -42,6 +42,17 @@ export interface LayoutAttributes {
   tracking?: number
   weight?: number
   strategy?: string
+  /**
+   * Rotation in degrees (clockwise) baked directly into the generated path
+   * coordinates. Unlike an SVG `transform` attribute this survives the
+   * browser compiler, which only re-scales each path's `d` data. Used by the
+   * rotated side layouts (e.g. pinyin to the right of the glyph).
+   */
+  rotate?: number
+  /** Rotation pivot X in canvas space; defaults to `x` when `rotate` is set. */
+  rotateOriginX?: number
+  /** Rotation pivot Y in canvas space; defaults to `y` when `rotate` is set. */
+  rotateOriginY?: number
 }
 
 /** Build configuration for font generation */
