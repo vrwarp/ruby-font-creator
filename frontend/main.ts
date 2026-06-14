@@ -322,6 +322,7 @@ const state = {
   // Micro-Typography Parameters
   strategy: 'smart', // smart | proportional | global
   verticalOffset: 4, // px
+  columnVerticalOffset: 0, // px, vertical align of the rotated 'right' column (+ = up)
   opticalSqueeze: 65, // %
   fontWeight: 500,
   letterTracking: -0.04, // em
@@ -421,6 +422,11 @@ const elements = {
     'range-vertical-offset',
   ) as HTMLInputElement,
   valVerticalOffset: document.getElementById('val-vertical-offset')!,
+  columnVOffsetGroup: document.getElementById('column-voffset-group')!,
+  rangeColumnVOffset: document.getElementById(
+    'range-column-voffset',
+  ) as HTMLInputElement,
+  valColumnVOffset: document.getElementById('val-column-voffset')!,
   rangeOpticalSqueeze: document.getElementById(
     'range-optical-squeeze',
   ) as HTMLInputElement,
@@ -618,6 +624,7 @@ function saveStateToUrl() {
   params.set('characterWidth', state.characterWidth.toString())
   params.set('strategy', state.strategy)
   params.set('verticalOffset', state.verticalOffset.toString())
+  params.set('columnVerticalOffset', state.columnVerticalOffset.toString())
   params.set('opticalSqueeze', state.opticalSqueeze.toString())
   params.set('fontWeight', state.fontWeight.toString())
   params.set('letterTracking', state.letterTracking.toFixed(3))
@@ -700,6 +707,12 @@ function loadStateFromUrl() {
     -20,
     60,
   )
+  state.columnVerticalOffset = readInt(
+    'columnVerticalOffset',
+    state.columnVerticalOffset,
+    -40,
+    40,
+  )
   state.opticalSqueeze = readInt(
     'opticalSqueeze',
     state.opticalSqueeze,
@@ -781,6 +794,7 @@ function loadStateFromUrl() {
 function syncUIFromState() {
   // Range sliders
   elements.rangeVerticalOffset.value = state.verticalOffset.toString()
+  elements.rangeColumnVOffset.value = state.columnVerticalOffset.toString()
   elements.rangeOpticalSqueeze.value = state.opticalSqueeze.toString()
   elements.rangeCharacterWidth.value = state.characterWidth.toString()
   elements.rangeStrokeWeight.value = state.fontWeight.toString()
@@ -791,6 +805,7 @@ function syncUIFromState() {
 
   // Labels text content
   elements.valVerticalOffset.textContent = `${state.verticalOffset}px`
+  elements.valColumnVOffset.textContent = `${state.columnVerticalOffset}px`
   elements.valOpticalSqueeze.textContent = `${state.opticalSqueeze}%`
   elements.valCharacterWidth.textContent = `${state.characterWidth}px`
   elements.valStrokeWeight.textContent = `${state.fontWeight}`
@@ -884,6 +899,8 @@ function applySavedConfig(config: any) {
   if (!config) return
   state.placement = config.placement ?? state.placement
   state.verticalOffset = config.verticalOffset ?? state.verticalOffset
+  state.columnVerticalOffset =
+    config.columnVerticalOffset ?? state.columnVerticalOffset
   state.opticalSqueeze = config.opticalSqueeze ?? state.opticalSqueeze
   state.fontWeight = config.fontWeight ?? state.fontWeight
   state.letterTracking = config.letterTracking ?? state.letterTracking
@@ -1551,6 +1568,12 @@ function setupEventListeners() {
     (v) => `${v}px`,
   )
   bindSlider(
+    elements.rangeColumnVOffset,
+    elements.valColumnVOffset,
+    'columnVerticalOffset',
+    (v) => `${v}px`,
+  )
+  bindSlider(
     elements.rangeOpticalSqueeze,
     elements.valOpticalSqueeze,
     'opticalSqueeze',
@@ -1595,6 +1618,7 @@ function setupEventListeners() {
   // Reset controls
   elements.btnResetControls.addEventListener('click', () => {
     state.verticalOffset = 4
+    state.columnVerticalOffset = 0
     state.opticalSqueeze = 65
     state.fontWeight = 500
     state.letterTracking = -0.04
@@ -1606,6 +1630,8 @@ function setupEventListeners() {
     // Update Slider inputs elements values
     elements.rangeVerticalOffset.value = '4'
     elements.valVerticalOffset.textContent = '4px'
+    elements.rangeColumnVOffset.value = '0'
+    elements.valColumnVOffset.textContent = '0px'
     elements.rangeOpticalSqueeze.value = '65'
     elements.valOpticalSqueeze.textContent = '65%'
     elements.rangeStrokeWeight.value = '500'
@@ -1831,68 +1857,20 @@ async function getPreviews(
     const annoEngine = await getAnnotationFontEngine(state.pinyinFont)
     return glyphs.map((char) => {
       const characterWidth = state.characterWidth || 80
-      const centerVal = characterWidth / 2
-      const isPlacementRight = state.placement === 'right'
-      const isPlacementTop = state.placement === 'top'
+      const { base: baseLayout, annotation: annoLayout } = placementLayout({
+        width: characterWidth,
+        height: 80,
+      })
 
-      let baseSvgPath: string
-      let pinyinPaths: string
+      const baseSvgPath = ruby.getBase(baseEngine, char.glyph, {
+        ...baseLayout,
+        attributes: { fill: 'currentColor', id: 'glyph' },
+      })
 
-      if (isPlacementRight) {
-        // Glyph on the left, pinyin column rotated 90° CW on the right. Reuse
-        // the shared layout helpers so the preview matches the CLI/browser
-        // build exactly; micro-typography sliders still drive the pinyin fit.
-        const canvas = { width: characterWidth, height: 80 }
-        baseSvgPath = ruby.getBase(baseEngine, char.glyph, {
-          ...layout.base.left(canvas),
-          attributes: { fill: 'currentColor', id: 'glyph' },
-        })
-        pinyinPaths = ruby.getAnnotation(annoEngine, char.ruby, {
-          ...layout.annotation.right(canvas),
-          attributes: { fill: 'currentColor', id: 'annotation' },
-          squeeze: state.opticalSqueeze,
-          tracking: state.letterTracking,
-          weight: state.fontWeight,
-          strategy: state.strategy,
-        })
-      } else {
-        const baseLineY = isPlacementTop ? 92 : -4
-        const baseAnchor = isPlacementTop ? 'bottom center' : 'top center'
-        const annoLineY = isPlacementTop
-          ? -4 - state.verticalOffset
-          : 92 + state.verticalOffset
-        const annoAnchor = isPlacementTop ? 'top center' : 'bottom center'
-
-        baseSvgPath = ruby.getBase(baseEngine, char.glyph, {
-          x: centerVal,
-          y: baseLineY,
-          fontSize: 56,
-          anchor: baseAnchor,
-          attributes: {
-            fill: 'currentColor',
-            id: 'glyph',
-          },
-        })
-
-        const pinyinFontSize = Math.round(
-          56 * (state.pinyinSize / state.hanziSize),
-        )
-
-        pinyinPaths = ruby.getAnnotation(annoEngine, char.ruby, {
-          x: centerVal,
-          y: annoLineY,
-          fontSize: pinyinFontSize,
-          anchor: annoAnchor,
-          attributes: {
-            fill: 'currentColor',
-            id: 'annotation',
-          },
-          squeeze: state.opticalSqueeze,
-          tracking: state.letterTracking,
-          weight: state.fontWeight,
-          strategy: state.strategy,
-        })
-      }
+      const pinyinPaths = ruby.getAnnotation(annoEngine, char.ruby, {
+        ...annoLayout,
+        attributes: { fill: 'currentColor', id: 'annotation' },
+      })
 
       const svgContent = `<svg width="${characterWidth}" height="80" viewBox="0 0 ${characterWidth} 80" xmlns="http://www.w3.org/2000/svg">
         ${baseSvgPath}
@@ -1988,8 +1966,13 @@ function updateUI() {
       state.activeTab === 'sandbox' ? 'flex' : 'none'
   }
 
+  // The rotated-column vertical align only applies to the 'right' placement.
+  elements.columnVOffsetGroup.style.display =
+    state.placement === 'right' ? '' : 'none'
+
   // Update labels values
   elements.valVerticalOffset.textContent = `${state.verticalOffset}px`
+  elements.valColumnVOffset.textContent = `${state.columnVerticalOffset}px`
   elements.valOpticalSqueeze.textContent = `${state.opticalSqueeze}%`
   elements.valLetterTracking.textContent = `${state.letterTracking.toFixed(3)}em`
   elements.valPinyinSize.textContent = `${state.pinyinSize}px`
@@ -2297,9 +2280,15 @@ async function renderSandbox() {
       svgEl.style.overflow = 'visible'
 
       if (state.placement === 'right') {
-        // Glyph + rotated pinyin column both sit within the canvas bounds; a
-        // little vertical padding keeps long columns from touching the edge.
-        svgEl.setAttribute('viewBox', `0 -5 ${state.characterWidth} 90`)
+        // Glyph + rotated pinyin column. Widen the box when the Offset knob
+        // pushes the column past the cell, and pad vertically for the V-Align
+        // nudge, so both stay visible in the preview.
+        const extra = Math.max(0, state.verticalOffset - 4) + 5
+        const vPad = Math.abs(state.columnVerticalOffset)
+        svgEl.setAttribute(
+          'viewBox',
+          `0 ${-5 - vPad} ${state.characterWidth + extra} ${90 + 2 * vPad}`,
+        )
       } else {
         const isPlacementTop = state.placement === 'top'
         const minY = isPlacementTop
@@ -2318,6 +2307,64 @@ async function renderSandbox() {
   }
 }
 
+// Build the {base, annotation} layout geometry for the current placement.
+// Shared by the live preview, the in-browser font build, and the live tester
+// font so all three stay in sync. The rotated "right" placement reuses the
+// shared layout helpers (src/layouts.ts); the rotation is baked into the path
+// coordinates by ruby.getAnnotation. Attributes (fill/id) are layered on by
+// callers that render SVG directly — the compiler only reads each path's `d`.
+function placementLayout(canvasDims: { width: number; height: number }) {
+  if (state.placement === 'right') {
+    const annoRight = layout.annotation.right(canvasDims)
+    return {
+      base: layout.base.left(canvasDims),
+      annotation: {
+        ...annoRight,
+        // The "Offset" knob sets the gap between the glyph and the rotated
+        // column. Shifting x also moves the rotation pivot, so the whole column
+        // slides horizontally without changing its vertical centering. The
+        // slider's neutral default is 4, so we shift relative to that
+        // (positive = larger gap / column further right).
+        x: annoRight.x + (state.verticalOffset - 4),
+        // The "V-Align" knob nudges the column up/down so it can line up with a
+        // glyph whose optical centre isn't at the geometric middle. Shifting y
+        // also moves the rotation pivot, so the column slides vertically without
+        // changing its horizontal position (+ = up).
+        y: annoRight.y - state.columnVerticalOffset,
+        squeeze: state.opticalSqueeze,
+        tracking: state.letterTracking,
+        weight: state.fontWeight,
+        strategy: state.strategy,
+      },
+    }
+  }
+
+  const isTop = state.placement === 'top'
+  const pinyinFontSize = Math.round(56 * (state.pinyinSize / state.hanziSize))
+  return {
+    base: {
+      x: canvasDims.width / 2,
+      y: isTop ? canvasDims.height + 12 : -4,
+      fontSize: 56,
+      anchor: isTop ? 'bottom center' : 'top center',
+      attributes: { fill: 'black', stroke: 'black', id: 'glyph' },
+    },
+    annotation: {
+      x: canvasDims.width / 2,
+      y: isTop
+        ? -4 - state.verticalOffset
+        : canvasDims.height + 12 + state.verticalOffset,
+      fontSize: pinyinFontSize,
+      anchor: isTop ? 'top center' : 'bottom center',
+      attributes: { fill: 'black', stroke: 'black', id: 'annotation' },
+      squeeze: state.opticalSqueeze,
+      tracking: state.letterTracking,
+      weight: state.fontWeight,
+      strategy: state.strategy,
+    },
+  }
+}
+
 // Generate the configuration TypeScript code block
 function generateCLIConfig() {
   // The rotated "right" placement reuses the shared layout helpers (matching
@@ -2330,6 +2377,10 @@ function generateCLIConfig() {
       base: layout.base.left(this.canvas),
       annotation: {
         ...layout.annotation.right(this.canvas),
+        // "Offset" knob = gap between the glyph and the rotated column.
+        x: layout.annotation.right(this.canvas).x + ${state.verticalOffset - 4},
+        // "V-Align" knob = vertical nudge of the column (+ = up).
+        y: layout.annotation.right(this.canvas).y - ${state.columnVerticalOffset},
         squeeze: ${state.opticalSqueeze},
         tracking: ${state.letterTracking.toFixed(3)},
         weight: ${state.fontWeight},
@@ -2490,51 +2541,11 @@ async function triggerFontBuild() {
     const allEntries = [...allData, ...getAlternateGlyphEntries()]
 
     // Build configuration object
-    const calculatedPinyinFontSize = Math.round(
-      56 * (state.pinyinSize / state.hanziSize),
-    )
     const canvasDims = { width: state.characterWidth, height: 80 }
-    const layoutConfig =
-      state.placement === 'right'
-        ? {
-            // Glyph left, pinyin column rotated 90° CW on the right. Shared
-            // helpers keep this identical to the preview and the CLI config.
-            base: layout.base.left(canvasDims),
-            annotation: {
-              ...layout.annotation.right(canvasDims),
-              squeeze: state.opticalSqueeze,
-              tracking: state.letterTracking,
-              weight: state.fontWeight,
-              strategy: state.strategy,
-            },
-          }
-        : {
-            base: {
-              x: state.characterWidth / 2,
-              y: state.placement === 'top' ? 92 : -4,
-              fontSize: 56,
-              anchor:
-                state.placement === 'top' ? 'bottom center' : 'top center',
-            },
-            annotation: {
-              x: state.characterWidth / 2,
-              y:
-                state.placement === 'top'
-                  ? -4 - state.verticalOffset
-                  : 92 + state.verticalOffset,
-              fontSize: calculatedPinyinFontSize,
-              anchor:
-                state.placement === 'top' ? 'top center' : 'bottom center',
-              squeeze: state.opticalSqueeze,
-              tracking: state.letterTracking,
-              weight: state.fontWeight,
-              strategy: state.strategy,
-            },
-          }
     const config = {
       canvas: canvasDims,
       fontName: sanitizedFontName,
-      layout: layoutConfig,
+      layout: placementLayout(canvasDims),
     } as any
 
     const result = await compileFontInBrowser(
@@ -2558,6 +2569,7 @@ async function triggerFontBuild() {
       config: {
         placement: state.placement,
         verticalOffset: state.verticalOffset,
+        columnVerticalOffset: state.columnVerticalOffset,
         opticalSqueeze: state.opticalSqueeze,
         fontWeight: state.fontWeight,
         letterTracking: state.letterTracking,
@@ -2636,33 +2648,11 @@ async function triggerLiveFontBuild() {
     }
 
     const { compileFontInBrowser } = await import('./compiler.js')
-    const calculatedPinyinFontSize = Math.round(
-      56 * (state.pinyinSize / state.hanziSize),
-    )
+    const canvasDims = { width: state.characterWidth, height: 80 }
     const config = {
-      canvas: { width: state.characterWidth, height: 80 },
+      canvas: canvasDims,
       fontName: 'live',
-      layout: {
-        base: {
-          x: state.characterWidth / 2,
-          y: state.placement === 'top' ? 92 : -4,
-          fontSize: 56,
-          anchor: state.placement === 'top' ? 'bottom center' : 'top center',
-        },
-        annotation: {
-          x: state.characterWidth / 2,
-          y:
-            state.placement === 'top'
-              ? -4 - state.verticalOffset
-              : 92 + state.verticalOffset,
-          fontSize: calculatedPinyinFontSize,
-          anchor: state.placement === 'top' ? 'top center' : 'bottom center',
-          squeeze: state.opticalSqueeze,
-          tracking: state.letterTracking,
-          weight: state.fontWeight,
-          strategy: state.strategy,
-        },
-      },
+      layout: placementLayout(canvasDims),
     } as any
 
     const result = await compileFontInBrowser(
