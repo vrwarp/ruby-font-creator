@@ -322,6 +322,7 @@ const state = {
   // Micro-Typography Parameters
   strategy: 'smart', // smart | proportional | global
   verticalOffset: 4, // px
+  columnVerticalOffset: 0, // px, vertical align of the rotated 'right' column (+ = up)
   opticalSqueeze: 65, // %
   fontWeight: 500,
   letterTracking: -0.04, // em
@@ -421,6 +422,11 @@ const elements = {
     'range-vertical-offset',
   ) as HTMLInputElement,
   valVerticalOffset: document.getElementById('val-vertical-offset')!,
+  columnVOffsetGroup: document.getElementById('column-voffset-group')!,
+  rangeColumnVOffset: document.getElementById(
+    'range-column-voffset',
+  ) as HTMLInputElement,
+  valColumnVOffset: document.getElementById('val-column-voffset')!,
   rangeOpticalSqueeze: document.getElementById(
     'range-optical-squeeze',
   ) as HTMLInputElement,
@@ -618,6 +624,7 @@ function saveStateToUrl() {
   params.set('characterWidth', state.characterWidth.toString())
   params.set('strategy', state.strategy)
   params.set('verticalOffset', state.verticalOffset.toString())
+  params.set('columnVerticalOffset', state.columnVerticalOffset.toString())
   params.set('opticalSqueeze', state.opticalSqueeze.toString())
   params.set('fontWeight', state.fontWeight.toString())
   params.set('letterTracking', state.letterTracking.toFixed(3))
@@ -700,6 +707,12 @@ function loadStateFromUrl() {
     -20,
     60,
   )
+  state.columnVerticalOffset = readInt(
+    'columnVerticalOffset',
+    state.columnVerticalOffset,
+    -40,
+    40,
+  )
   state.opticalSqueeze = readInt(
     'opticalSqueeze',
     state.opticalSqueeze,
@@ -781,6 +794,7 @@ function loadStateFromUrl() {
 function syncUIFromState() {
   // Range sliders
   elements.rangeVerticalOffset.value = state.verticalOffset.toString()
+  elements.rangeColumnVOffset.value = state.columnVerticalOffset.toString()
   elements.rangeOpticalSqueeze.value = state.opticalSqueeze.toString()
   elements.rangeCharacterWidth.value = state.characterWidth.toString()
   elements.rangeStrokeWeight.value = state.fontWeight.toString()
@@ -791,6 +805,7 @@ function syncUIFromState() {
 
   // Labels text content
   elements.valVerticalOffset.textContent = `${state.verticalOffset}px`
+  elements.valColumnVOffset.textContent = `${state.columnVerticalOffset}px`
   elements.valOpticalSqueeze.textContent = `${state.opticalSqueeze}%`
   elements.valCharacterWidth.textContent = `${state.characterWidth}px`
   elements.valStrokeWeight.textContent = `${state.fontWeight}`
@@ -884,6 +899,8 @@ function applySavedConfig(config: any) {
   if (!config) return
   state.placement = config.placement ?? state.placement
   state.verticalOffset = config.verticalOffset ?? state.verticalOffset
+  state.columnVerticalOffset =
+    config.columnVerticalOffset ?? state.columnVerticalOffset
   state.opticalSqueeze = config.opticalSqueeze ?? state.opticalSqueeze
   state.fontWeight = config.fontWeight ?? state.fontWeight
   state.letterTracking = config.letterTracking ?? state.letterTracking
@@ -1539,6 +1556,12 @@ function setupEventListeners() {
     (v) => `${v}px`,
   )
   bindSlider(
+    elements.rangeColumnVOffset,
+    elements.valColumnVOffset,
+    'columnVerticalOffset',
+    (v) => `${v}px`,
+  )
+  bindSlider(
     elements.rangeOpticalSqueeze,
     elements.valOpticalSqueeze,
     'opticalSqueeze',
@@ -1583,6 +1606,7 @@ function setupEventListeners() {
   // Reset controls
   elements.btnResetControls.addEventListener('click', () => {
     state.verticalOffset = 4
+    state.columnVerticalOffset = 0
     state.opticalSqueeze = 65
     state.fontWeight = 500
     state.letterTracking = -0.04
@@ -1594,6 +1618,8 @@ function setupEventListeners() {
     // Update Slider inputs elements values
     elements.rangeVerticalOffset.value = '4'
     elements.valVerticalOffset.textContent = '4px'
+    elements.rangeColumnVOffset.value = '0'
+    elements.valColumnVOffset.textContent = '0px'
     elements.rangeOpticalSqueeze.value = '65'
     elements.valOpticalSqueeze.textContent = '65%'
     elements.rangeStrokeWeight.value = '500'
@@ -1928,8 +1954,13 @@ function updateUI() {
       state.activeTab === 'sandbox' ? 'flex' : 'none'
   }
 
+  // The rotated-column vertical align only applies to the 'right' placement.
+  elements.columnVOffsetGroup.style.display =
+    state.placement === 'right' ? '' : 'none'
+
   // Update labels values
   elements.valVerticalOffset.textContent = `${state.verticalOffset}px`
+  elements.valColumnVOffset.textContent = `${state.columnVerticalOffset}px`
   elements.valOpticalSqueeze.textContent = `${state.opticalSqueeze}%`
   elements.valLetterTracking.textContent = `${state.letterTracking.toFixed(3)}em`
   elements.valPinyinSize.textContent = `${state.pinyinSize}px`
@@ -2153,11 +2184,15 @@ async function renderSandbox() {
       svgEl.style.overflow = 'visible'
 
       if (state.placement === 'right') {
-        // Glyph + rotated pinyin column. A little vertical padding keeps long
-        // columns off the edge; widen the box when the Offset knob pushes the
-        // column past the cell so the gap stays visible in the preview.
+        // Glyph + rotated pinyin column. Widen the box when the Offset knob
+        // pushes the column past the cell, and pad vertically for the V-Align
+        // nudge, so both stay visible in the preview.
         const extra = Math.max(0, state.verticalOffset - 4) + 5
-        svgEl.setAttribute('viewBox', `0 -5 ${state.characterWidth + extra} 90`)
+        const vPad = Math.abs(state.columnVerticalOffset)
+        svgEl.setAttribute(
+          'viewBox',
+          `0 ${-5 - vPad} ${state.characterWidth + extra} ${90 + 2 * vPad}`,
+        )
       } else {
         const isPlacementTop = state.placement === 'top'
         const minY = isPlacementTop
@@ -2195,6 +2230,11 @@ function placementLayout(canvasDims: { width: number; height: number }) {
         // slider's neutral default is 4, so we shift relative to that
         // (positive = larger gap / column further right).
         x: annoRight.x + (state.verticalOffset - 4),
+        // The "V-Align" knob nudges the column up/down so it can line up with a
+        // glyph whose optical centre isn't at the geometric middle. Shifting y
+        // also moves the rotation pivot, so the column slides vertically without
+        // changing its horizontal position (+ = up).
+        y: annoRight.y - state.columnVerticalOffset,
         squeeze: state.opticalSqueeze,
         tracking: state.letterTracking,
         weight: state.fontWeight,
@@ -2243,6 +2283,8 @@ function generateCLIConfig() {
         ...layout.annotation.right(this.canvas),
         // "Offset" knob = gap between the glyph and the rotated column.
         x: layout.annotation.right(this.canvas).x + ${state.verticalOffset - 4},
+        // "V-Align" knob = vertical nudge of the column (+ = up).
+        y: layout.annotation.right(this.canvas).y - ${state.columnVerticalOffset},
         squeeze: ${state.opticalSqueeze},
         tracking: ${state.letterTracking.toFixed(3)},
         weight: ${state.fontWeight},
@@ -2421,6 +2463,7 @@ async function triggerFontBuild() {
       config: {
         placement: state.placement,
         verticalOffset: state.verticalOffset,
+        columnVerticalOffset: state.columnVerticalOffset,
         opticalSqueeze: state.opticalSqueeze,
         fontWeight: state.fontWeight,
         letterTracking: state.letterTracking,
