@@ -72,5 +72,77 @@ describe('jit training recipe', () => {
       presetByKey('thorough').chars,
     )
     expect(presetByKey('nonsense').key).toBe('standard')
+    for (const preset of TRAIN_PRESETS) {
+      expect(preset.augVariants).toBeGreaterThanOrEqual(1)
+    }
+  })
+})
+
+describe('ranked coverage selection', () => {
+  it('puts ranked chars present in the pool first, in rank order', () => {
+    const covered = cjkPool(500)
+    const { holdout: plainHoldout } = selectTrainingSet(covered, 64)
+    const holdoutSet = new Set(plainHoldout)
+    // Mix of in-pool and out-of-pool ranked chars, deliberately not sorted.
+    const ranked = [
+      0x4e00 + 450,
+      0x9f00, // CJK but absent from the pool
+      0x4e00 + 3,
+      0x4e00 + 200,
+      0x4e00 + 7,
+    ].filter((cp) => !holdoutSet.has(cp))
+    const { train, holdout } = selectTrainingSet(covered, 64, ranked)
+    expect(holdout).toEqual(plainHoldout)
+    const inPool = ranked.filter((cp) => cp >= 0x4e00 && cp < 0x4e00 + 500)
+    expect(train.slice(0, inPool.length)).toEqual(inPool)
+    expect(train.length).toBe(64)
+    expect(new Set(train).size).toBe(64)
+  })
+
+  it('never overlaps holdout even when ranked includes holdout chars', () => {
+    const covered = cjkPool(400)
+    const ranked = [...covered] // every pool char, holdout included
+    const { train, holdout } = selectTrainingSet(covered, 128, ranked)
+    expect(train.length).toBe(128)
+    expect(holdout.length).toBe(HOLDOUT_COUNT)
+    const trainSet = new Set(train)
+    for (const cp of holdout) expect(trainSet.has(cp)).toBe(false)
+  })
+
+  it('is deterministic for the same inputs', () => {
+    const covered = cjkPool(300)
+    const ranked = [0x4e00 + 99, 0x4e00 + 1, 0x4e00 + 250]
+    const a = selectTrainingSet(covered, 64, ranked)
+    const b = selectTrainingSet([...covered].reverse(), 64, ranked)
+    expect(a.train).toEqual(b.train)
+    expect(a.holdout).toEqual(b.holdout)
+  })
+
+  it('tops up from seeded-random pool when ranked is mostly absent', () => {
+    const covered = cjkPool(300)
+    const { holdout: plainHoldout } = selectTrainingSet(covered, 64)
+    const holdoutSet = new Set(plainHoldout)
+    const present = [0x4e00 + 123, 0x4e00 + 45].filter(
+      (cp) => !holdoutSet.has(cp),
+    )
+    const absent = Array.from({ length: 100 }, (_, i) => 0x9000 + i)
+    const { train, holdout } = selectTrainingSet(covered, 64, [
+      ...absent,
+      ...present,
+    ])
+    expect(train.length).toBe(64)
+    expect(train.slice(0, present.length)).toEqual(present)
+    for (const cp of absent) expect(train).not.toContain(cp)
+    const trainSet = new Set(train)
+    expect(trainSet.size).toBe(64)
+    for (const cp of holdout) expect(trainSet.has(cp)).toBe(false)
+  })
+
+  it('matches the legacy selection when ranked is empty', () => {
+    const covered = cjkPool(300)
+    const plain = selectTrainingSet(covered, 64)
+    const empty = selectTrainingSet(covered, 64, [])
+    expect(empty.train).toEqual(plain.train)
+    expect(empty.holdout).toEqual(plain.holdout)
   })
 })

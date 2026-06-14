@@ -12,3 +12,5 @@ vendor/
 .venv-mxfont/
 # generated data asset (npm run download:opencc)
 frontend/public/data/variants.json
+# generated data asset (node scripts/build-char-coverage.js)
+frontend/public/data/char-coverage.json

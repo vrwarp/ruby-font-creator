@@ -41,6 +41,9 @@ export interface JitLoraEntry {
   // filled font's coverage would otherwise leak AI-generated glyphs in)
   trainCps: number[]
   holdoutCps: number[]
+  // per-font structure-gate thresholds calibrated on the font's own glyphs
+  // (src/structure-gate.ts GateCalibration); absent on legacy checkpoints
+  gateCalib?: import('../src/structure-gate.js').GateCalibration
 }
 
 const DB_NAME = 'RubyFontCreatorDB'

@@ -24,7 +24,24 @@ import {
 } from './zi2zi-client.js'
 import { JitClient } from './jit/jit-client.js'
 import { JitRasterizer, sampleToInk, JIT_CONTENT_SIZE } from './jit/raster.js'
-import { selectTrainingSet, pickRefsFor, presetByKey } from './jit/recipe.js'
+import {
+  selectTrainingSet,
+  pickRefsFor,
+  presetByKey,
+  mulberry32 as jitMulberry32,
+} from './jit/recipe.js'
+import {
+  prepRef,
+  scoreGlyph,
+  calibrate as gateCalibrate,
+  passes as gatePasses,
+  gateZScore,
+  glyphMatch,
+  refSimilarity,
+  type GateCalibration,
+  type GateRef,
+} from '../src/structure-gate.js'
+import type { JitAnchorOpts, JitPrepareSample } from './jit/jit-client.js'
 
 // Interface declarations
 interface SyllablePreset {
@@ -598,6 +615,10 @@ const elements = {
   jitQualitySelect: document.getElementById(
     'jit-quality-select',
   ) as HTMLSelectElement,
+  jitAnchorSelect: document.getElementById(
+    'jit-anchor-select',
+  ) as HTMLSelectElement,
+  jitPreviewScore: document.getElementById('jit-preview-score')!,
   btnJitRetrain: document.getElementById(
     'btn-jit-retrain',
   ) as HTMLButtonElement,
@@ -3239,6 +3260,9 @@ const JIT_NULL_FONT_INDEX = 1000
 const JIT_CFG = 2.6
 const JIT_SEED = 42
 const JIT_BATCH_SIZE = 2 // hard cap: larger batches exceed kernel index space
+// microbatches per optimizer update — recovers the validated effective batch
+// (mean loss + no BatchNorm makes accumulation exact)
+const JIT_ACCUM_STEPS = 4
 
 let jitClient: JitClient | null = null
 let jitDevice: string | null = null
@@ -3253,6 +3277,71 @@ let jitActiveSets: {
   holdoutCps: number[]
 } | null = null
 let jitPreviewResolve: ((accepted: boolean) => void) | null = null
+// per-font structure-gate calibration for the loaded adapter
+let jitActiveCalib: GateCalibration | null = null
+
+let charCoveragePromise: Promise<number[] | null> | null = null
+// IDS-component-coverage ranked char list (scripts/build-char-coverage.js);
+// null when the asset is missing — selection falls back to seeded random
+function loadCharCoverage(): Promise<number[] | null> {
+  if (!charCoveragePromise) {
+    charCoveragePromise = fetch('./data/char-coverage.json')
+      .then((r) => (r.ok ? (r.json() as Promise<number[]>) : null))
+      .catch(() => null)
+  }
+  return charCoveragePromise
+}
+
+// inference-time structure anchors (docs/style-transfer-research.md Track A)
+// Measured on ZCOOL KuaiLe: EVERY whole-run anchor trades style for
+// structure (raw init -> content-font strokes; blurred init -> gray
+// residue; content-CFG alone is too weak to fix structure). So the policy
+// is rescue-only: attempt 0 runs the pure model (max style), and anchors
+// escalate ONLY on glyphs the structure gate rejects — those individually
+// trade style for correctness instead of taxing the whole fill.
+function jitAnchorOpts(level?: string): JitAnchorOpts {
+  const v = level ?? elements.jitAnchorSelect.value
+  if (v === 'strong') return { tStart: 0.3, initBlur: 10, contentCfg: 4 }
+  return {} // auto and off: first attempts are pure model
+}
+
+// gate-failure regen escalation (auto): round 1 adds a blurred
+// low-frequency init, round 2 strengthens it and adds content guidance.
+// 'off' opts out of anchors entirely (reseed only); 'strong' anchors every
+// attempt.
+function jitEscalatedAnchor(round: number): JitAnchorOpts {
+  const sel = elements.jitAnchorSelect.value as string
+  if (sel === 'off') return {}
+  if (sel === 'strong') return jitAnchorOpts('strong')
+  if (round === 1) return { tStart: 0.3, initBlur: 10 }
+  if (round >= 2) return { tStart: 0.45, initBlur: 8, contentCfg: 4 }
+  return {}
+}
+
+// gate calibration: the font's own real glyphs scored against the content
+// font measure its LEGITIMATE style deviation (mirrors textpecker_gate
+// calibrate); thresholds auto-adapt per font
+function jitComputeCalibration(
+  ctx: { userRaster: JitRasterizer; contentRaster: JitRasterizer },
+  cps: number[],
+): GateCalibration | null {
+  const scores = []
+  for (const cp of cps.slice(0, 64)) {
+    const content = ctx.contentRaster.renderTensor(cp)
+    const real = ctx.userRaster.renderTensor(cp)
+    if (!content || !real) continue
+    const ref = prepRef(
+      sampleToInk(content, JIT_CONTENT_SIZE),
+      JIT_CONTENT_SIZE,
+    )
+    if (!ref.ok) continue
+    scores.push(
+      scoreGlyph(sampleToInk(real, JIT_CONTENT_SIZE), JIT_CONTENT_SIZE, ref),
+    )
+  }
+  if (scores.length < 8) return null
+  return gateCalibrate(scores)
+}
 
 function getJitClient(): JitClient {
   if (!jitClient) {
@@ -3305,7 +3394,8 @@ async function jitBuildContext(fontKey: string) {
     holdout = jitActiveSets.holdoutCps
   } else {
     const covered = coveredCodepoints(engine.font)
-    ;({ train, holdout } = selectTrainingSet(covered, preset.chars))
+    const ranked = (await loadCharCoverage()) ?? undefined
+    ;({ train, holdout } = selectTrainingSet(covered, preset.chars, ranked))
   }
   return { engine, userRaster, contentRaster, train, holdout, preset }
 }
@@ -3324,33 +3414,17 @@ async function jitRunTraining(fontKey: string): Promise<boolean> {
     throw new Error('This font has too few CJK glyphs to learn its style from.')
   }
 
-  // Unlike the offline recipe there is no per-epoch resize-and-random-crop
-  // augmentation (samples are encoded once); with the small browser presets
-  // the regularization loss is an accepted trade-off.
-  setZi2ziStatus('Rendering training samples…')
-  const samples = []
+  const aug = ctx.preset.augVariants
+  const priorFrac = 0.25
   const trainedCps: number[] = []
-  for (const cp of ctx.train) {
-    const image = ctx.userRaster.renderTensor(cp)
-    const contentImage = ctx.contentRaster.renderTensor(cp)
-    const refs = pickRefsFor(cp, ctx.train)
-    const styleImage =
-      refs.length > 0 ? ctx.userRaster.renderStyleImage(refs) : null
-    if (!image || !contentImage || !styleImage) continue
-    samples.push({ image, styleImage, contentImage, fontIndex: JIT_FONT_INDEX })
-    trainedCps.push(cp)
-  }
-  if (samples.length < 8) {
-    throw new Error('Too few renderable training samples in this font.')
-  }
-  if (batchCancelRequested) return false
-
+  let prepared = 0
   elements.jitTrainProgress.style.display = ''
   elements.jitTrainBar.style.width = '0%'
   try {
-    client.onPrepareProgress = (done, total) => {
-      elements.jitTrainLbl.textContent = `Encoding samples ${done}/${total}…`
-      elements.jitTrainBar.style.width = `${Math.round((done / total) * 12)}%`
+    const expectedTotal = Math.round(ctx.train.length * aug * (1 + priorFrac))
+    client.onPrepareProgress = (done) => {
+      elements.jitTrainLbl.textContent = `Encoding samples ${done}/~${expectedTotal}…`
+      elements.jitTrainBar.style.width = `${Math.min(12, Math.round((done / Math.max(1, expectedTotal)) * 12))}%`
     }
     // the main batch button doubles as cancel-all; the watch also covers the
     // minutes-long prepare phase (the worker polls the abort flag there)
@@ -3359,16 +3433,95 @@ async function jitRunTraining(fontKey: string): Promise<boolean> {
     }, 500)
     let aborted: boolean
     try {
-      setZi2ziStatus(`Preparing ${samples.length} training samples…`)
-      const prep = await client.prepare(samples, JIT_NULL_FONT_INDEX)
-      if (prep.aborted) {
+      // samples are rendered, transferred, and encoded in small batches so
+      // hundreds of augmented f32 rasters never coexist on this thread
+      setZi2ziStatus('Rendering and encoding training samples…')
+      await client.prepareBegin(JIT_NULL_FONT_INDEX)
+      const jrng = jitMulberry32(JIT_SEED + 7)
+      let batch: JitPrepareSample[] = []
+      let prepAborted = false
+      const flush = async () => {
+        if (!batch.length) return
+        const r = await client.prepareAdd(batch)
+        batch = []
+        prepAborted = r.aborted
+      }
+      for (const cp of ctx.train) {
+        if (prepAborted || batchCancelRequested) break
+        const ownStyle = ctx.userRaster.renderStyleImage([cp])
+        if (!ownStyle) continue
+        // copies up front: each variant's buffer is transferred separately
+        const styleCopies = Array.from({ length: aug }, (_, i) =>
+          i === 0 ? ownStyle : ownStyle.slice(),
+        )
+        let added = false
+        for (let v = 0; v < aug; v++) {
+          // offline resize_and_random_crop analog, applied jointly to the
+          // target/content pair (variant 0 stays unaugmented)
+          // offline resize_and_random_crop enlarges 1.0-1.1x then crops
+          // back, so augmented glyphs sit at >= nominal size with shifts
+          // bounded by the crop envelope
+          let jitter
+          if (v > 0) {
+            const s = 1 + jrng() * 0.1
+            const envelope = ((s - 1) * JIT_CONTENT_SIZE) / 2
+            jitter = {
+              scale: s,
+              dx: (jrng() * 2 - 1) * envelope,
+              dy: (jrng() * 2 - 1) * envelope,
+            }
+          }
+          const image = ctx.userRaster.renderTensor(cp, jitter)
+          const contentImage = ctx.contentRaster.renderTensor(cp, jitter)
+          if (!image || !contentImage) continue
+          batch.push({
+            image,
+            styleImage: styleCopies[v],
+            contentImage,
+            fontIndex: JIT_FONT_INDEX,
+            styleKey: cp,
+          })
+          added = true
+          if (batch.length >= 12) await flush()
+        }
+        if (added) trainedCps.push(cp)
+      }
+      if (prepAborted || batchCancelRequested) {
+        setZi2ziStatus('Training stopped before it began.')
+        return false
+      }
+      if (trainedCps.length < 8) {
+        throw new Error('Too few renderable training samples in this font.')
+      }
+      // prior-preservation rows: content-font targets under null style/font
+      // keep the base model's structural prior alive during the fine-tune
+      const prng = jitMulberry32(JIT_SEED + 11)
+      const priorCount = Math.round(trainedCps.length * aug * priorFrac)
+      for (let i = 0; i < priorCount; i++) {
+        if (prepAborted || batchCancelRequested) break
+        const cp = trainedCps[Math.floor(prng() * trainedCps.length)]
+        const contentImage = ctx.contentRaster.renderTensor(cp)
+        if (!contentImage) continue
+        batch.push({
+          image: contentImage,
+          styleImage: new Float32Array(3 * 128 * 128).fill(1),
+          contentImage: contentImage.slice(),
+          fontIndex: JIT_NULL_FONT_INDEX,
+          prior: true,
+        })
+        if (batch.length >= 12) await flush()
+      }
+      await flush()
+      const prep = await client.prepareFinish()
+      prepared = prep.prepared
+      if (prep.aborted || prepAborted || batchCancelRequested) {
         setZi2ziStatus('Training stopped before it began.')
         return false
       }
 
       const stepsPerEpoch = Math.max(
         1,
-        Math.floor(samples.length / JIT_BATCH_SIZE),
+        Math.floor(prepared / (JIT_BATCH_SIZE * JIT_ACCUM_STEPS)),
       )
       const totalSteps = stepsPerEpoch * ctx.preset.epochs
       const stepTimes: number[] = []
@@ -3388,16 +3541,25 @@ async function jitRunTraining(fontKey: string): Promise<boolean> {
       const res = await client.train({
         epochs: ctx.preset.epochs,
         batchSize: JIT_BATCH_SIZE,
-        lr: 8e-4,
+        accumSteps: JIT_ACCUM_STEPS,
+        // sqrt-rule lr for effective batch 8 (validated recipe: 8e-4 @ 16),
+        // small-batch-corrected beta2
+        lr: 4e-4,
+        beta2: 0.975,
         warmupEpochs: 1,
         minLr: 1e-5,
         seed: JIT_SEED,
+        fontDropProb: 0.4,
+        tailAverage: true,
       })
       aborted = res.aborted
     } finally {
       clearInterval(cancelWatch)
     }
     if (aborted && batchCancelRequested) return false
+
+    setZi2ziStatus('Calibrating the structure gate…')
+    const gateCalib = jitComputeCalibration(ctx, trainedCps)
 
     setZi2ziStatus('Saving the trained adapter…')
     const { lora } = await client.exportLora()
@@ -3407,10 +3569,11 @@ async function jitRunTraining(fontKey: string): Promise<boolean> {
       lora,
       trainedAt: Date.now(),
       presetKey: ctx.preset.key,
-      trainChars: samples.length,
+      trainChars: trainedCps.length,
       epochs: ctx.preset.epochs,
       trainCps: trainedCps,
       holdoutCps: ctx.holdout,
+      gateCalib: gateCalib ?? undefined,
     })
     jitReadyFontKey = fontKey
     jitActiveSets = {
@@ -3418,6 +3581,7 @@ async function jitRunTraining(fontKey: string): Promise<boolean> {
       trainCps: trainedCps,
       holdoutCps: ctx.holdout,
     }
+    jitActiveCalib = gateCalib
     return true
   } finally {
     elements.jitTrainProgress.style.display = 'none'
@@ -3446,6 +3610,7 @@ async function jitEnsureTrained(fontKey: string): Promise<boolean> {
             holdoutCps: saved.holdoutCps,
           }
         : null
+    jitActiveCalib = (saved.gateCalib as GateCalibration | undefined) ?? null
     return true
   }
   return jitRunTraining(fontKey)
@@ -3462,6 +3627,12 @@ async function jitPreviewGate(fontKey: string): Promise<boolean> {
 
   const cellSize = 96
   let made = 0
+  const previews: {
+    cp: number
+    genInk: Float32Array
+    realInk: Float32Array | null
+    genCanvas: HTMLCanvasElement
+  }[] = []
   for (const cp of ctx.holdout) {
     if (batchCancelRequested) return false
     const contentImage = ctx.contentRaster.renderTensor(cp)
@@ -3479,6 +3650,7 @@ async function jitPreviewGate(fontKey: string): Promise<boolean> {
       steps,
       cfg: JIT_CFG,
       seed: JIT_SEED + cp,
+      ...jitAnchorOpts(),
     })
     const ink = sampleToInk(image, JIT_CONTENT_SIZE)
 
@@ -3540,11 +3712,142 @@ async function jitPreviewGate(fontKey: string): Promise<boolean> {
     cell.appendChild(real)
     cell.appendChild(gen)
     elements.jitPreviewGrid.appendChild(cell)
+    // real glyph ink for the adapter-level auto-score (style cancels when
+    // comparing generated vs REAL, so this is a pure structure check)
+    const realTensor = ctx.userRaster.renderTensor(cp)
+    previews.push({
+      cp,
+      genInk: ink,
+      realInk: realTensor ? sampleToInk(realTensor, JIT_CONTENT_SIZE) : null,
+      genCanvas: gen,
+    })
     made++
   }
   if (batchCancelRequested) return false
   if (made === 0) {
     throw new Error('Could not generate style-check glyphs.')
+  }
+
+  // identification auto-score: each generated glyph must match its own real
+  // glyph better than every other holdout's — a threshold-free structural
+  // health check of the whole adapter, surfaced before the multi-hour fill
+  const refs = previews.map((p) =>
+    p.realInk ? prepRef(p.realInk, JIT_CONTENT_SIZE) : null,
+  )
+  // extra distractors from train glyphs harden the identification test
+  // (~12 candidates per the research design)
+  const decoyRefs: GateRef[] = []
+  for (const cp of ctx.train) {
+    if (decoyRefs.length >= 4) break
+    const t = ctx.userRaster.renderTensor(cp)
+    if (!t) continue
+    const r = prepRef(sampleToInk(t, JIT_CONTENT_SIZE), JIT_CONTENT_SIZE)
+    if (r.ok) decoyRefs.push(r)
+  }
+  let scorePass = 0
+  let scoreTotal = 0
+  previews.forEach((p, i) => {
+    const ownRef = refs[i]
+    if (!ownRef?.ok) return
+    scoreTotal++
+    const own = glyphMatch(scoreGlyph(p.genInk, JIT_CONTENT_SIZE, ownRef))
+    let bestOther = -Infinity
+    refs.forEach((r, j) => {
+      if (j === i || !r?.ok) return
+      bestOther = Math.max(
+        bestOther,
+        glyphMatch(scoreGlyph(p.genInk, JIT_CONTENT_SIZE, r)),
+      )
+    })
+    for (const r of decoyRefs) {
+      bestOther = Math.max(
+        bestOther,
+        glyphMatch(scoreGlyph(p.genInk, JIT_CONTENT_SIZE, r)),
+      )
+    }
+    const ok = own > bestOther
+    p.genCanvas.style.borderColor = ok ? '#22c55e' : '#ef4444'
+    p.genCanvas.style.borderWidth = '2px'
+    if (ok) scorePass++
+  })
+  // style similarity via the frozen style encoder: cosine(gen, real) per
+  // holdout, with cosine(contentFont, real) as the "no style transfer"
+  // baseline — gen must beat the baseline or the adapter/anchor combination
+  // is washing the style out
+  let styleMatch = NaN
+  let styleBaseline = NaN
+  try {
+    const cos = (a: Float32Array, b: Float32Array) => {
+      let dot = 0
+      let na = 0
+      let nb = 0
+      for (let i = 0; i < a.length; i++) {
+        dot += a[i] * b[i]
+        na += a[i] * a[i]
+        nb += b[i] * b[i]
+      }
+      return dot / Math.max(1e-9, Math.sqrt(na) * Math.sqrt(nb))
+    }
+    // gen ink (256, ink-high) -> 128px style-format image [-1,1]
+    const inkTo128 = (ink: Float32Array): Float32Array => {
+      const out = new Float32Array(3 * 128 * 128)
+      for (let y = 0; y < 128; y++) {
+        for (let x = 0; x < 128; x++) {
+          const i2 = 2 * y * JIT_CONTENT_SIZE + 2 * x
+          const avg =
+            (ink[i2] +
+              ink[i2 + 1] +
+              ink[i2 + JIT_CONTENT_SIZE] +
+              ink[i2 + JIT_CONTENT_SIZE + 1]) /
+            4
+          const v = 1 - 2 * avg
+          const o = y * 128 + x
+          out[o] = v
+          out[128 * 128 + o] = v
+          out[2 * 128 * 128 + o] = v
+        }
+      }
+      return out
+    }
+    const genCos: number[] = []
+    const baseCos: number[] = []
+    for (let i = 0; i < previews.length; i++) {
+      const cp = previews[i].cp
+      const realImg = ctx.userRaster.renderStyleImage([cp])
+      const contentImg = ctx.contentRaster.renderStyleImage([cp])
+      if (!realImg || !contentImg || !previews[i].realInk) continue
+      const realEmb = (await client.styleEmbed(realImg)).emb
+      const genEmb = (await client.styleEmbed(inkTo128(previews[i].genInk))).emb
+      const contEmb = (await client.styleEmbed(contentImg)).emb
+      genCos.push(cos(genEmb, realEmb))
+      baseCos.push(cos(contEmb, realEmb))
+    }
+    if (genCos.length) {
+      styleMatch = genCos.reduce((a, b) => a + b, 0) / genCos.length
+      styleBaseline = baseCos.reduce((a, b) => a + b, 0) / baseCos.length
+    }
+  } catch {
+    /* style score is advisory */
+  }
+
+  if (elements.jitPreviewScore) {
+    const healthy = scoreTotal > 0 && scorePass / scoreTotal >= 0.7
+    const styleOk = !isFinite(styleMatch) || styleMatch > styleBaseline + 0.02
+    const stylePart = isFinite(styleMatch)
+      ? ` Style match: ${styleMatch.toFixed(2)} (content-font baseline ${styleBaseline.toFixed(2)}).` +
+        (styleOk
+          ? ''
+          : ' Style is washing out — lower the Structure Anchor or train longer.')
+      : ''
+    elements.jitPreviewScore.textContent = scoreTotal
+      ? `Structure check: ${scorePass}/${scoreTotal} held-out glyphs identified correctly.` +
+        (healthy
+          ? ''
+          : ' Structure looks weak — consider a higher Training Effort and Retrain, or a stronger Structure Anchor.') +
+        stylePart
+      : ''
+    elements.jitPreviewScore.style.color =
+      healthy && styleOk ? 'var(--text-secondary)' : '#ef4444'
   }
 
   elements.jitPreview.style.display = ''
@@ -3868,7 +4171,10 @@ function setupZi2ziEvents() {
     const { deleteJitLora } = await import('./db.js')
     await deleteJitLora(fontKey)
     if (jitReadyFontKey === fontKey) jitReadyFontKey = null
-    if (jitActiveSets?.fontKey === fontKey) jitActiveSets = null
+    if (jitActiveSets?.fontKey === fontKey) {
+      jitActiveSets = null
+      jitActiveCalib = null
+    }
     await jitRefreshPanelStatus()
   })
   elements.btnJitCancelTrain.addEventListener('click', () => {
@@ -3939,6 +4245,7 @@ async function runBatchFill(fontKey: string) {
     elements.zi2ziModeSelect.disabled = true
     elements.managerChineseFontSelect.disabled = true
     elements.jitPresetSelect.disabled = true
+    elements.jitAnchorSelect.disabled = true
     clearPinyinLogs()
 
     const spec: import('./compiler.js').ChineseFontPatchSpec = {
@@ -3976,29 +4283,116 @@ async function runBatchFill(fontKey: string) {
       const client = await ensureJitInit()
       const genCtx = await jitBuildContext(fontKey)
       const steps = jitSamplerSteps()
+      // structure gate (research roadmap Track C): per-font calibrated
+      // thresholds, best-of regen with escalating anchors and a capped
+      // budget, alias fallback only when confidently broken
+      let calib = jitActiveCalib
+      if (!calib) {
+        setZi2ziStatus('Calibrating the structure gate…')
+        calib = jitComputeCalibration(genCtx, genCtx.train)
+        jitActiveCalib = calib
+      }
+      let regenBudget = Math.ceil(plan.items.length * 0.2)
+      let gateRegens = 0
+      let gateBestOf = 0
+      const makeRef = (cp: number): GateRef | null => {
+        const t = genCtx.contentRaster.renderTensor(cp)
+        return t
+          ? prepRef(sampleToInk(t, JIT_CONTENT_SIZE), JIT_CONTENT_SIZE)
+          : null
+      }
+      // only counterpart refs repeat (many-to-one variant maps); target refs
+      // are unique per item, and an unbounded cache would hold ~70 KB per
+      // entry across a multi-hour fill
+      const cpRefCache = new Map<number, GateRef | null>()
+      const cpRefFor = (cp: number): GateRef | null => {
+        if (!cpRefCache.has(cp)) {
+          if (cpRefCache.size > 64) cpRefCache.clear()
+          cpRefCache.set(cp, makeRef(cp))
+        }
+        return cpRefCache.get(cp)!
+      }
       let completed = 0
       for (const item of plan.items) {
         if (batchCancelRequested) break
         try {
-          const contentImage = genCtx.contentRaster.renderTensor(item.cp)
-          if (!contentImage)
+          const contentTensor = genCtx.contentRaster.renderTensor(item.cp)
+          if (!contentTensor)
             throw new Error('content font has no outline for this character')
           const refs = pickRefsFor(item.cp, genCtx.train)
-          const styleImage =
-            refs.length > 0 ? genCtx.userRaster.renderStyleImage(refs) : null
-          if (!styleImage)
+          if (refs.length === 0)
             throw new Error('could not assemble style references')
-          const { image } = await client.sample({
-            styleImage,
-            contentImage,
-            fontIndex: JIT_FONT_INDEX,
-            steps,
-            cfg: JIT_CFG,
-            seed: JIT_SEED + item.cp,
-          })
-          const ink = sampleToInk(image, JIT_CONTENT_SIZE)
+          const targetRef = makeRef(item.cp)
+          const gated = !!(calib && targetRef?.ok)
+          const cpRef =
+            gated && item.counterpartCp != null
+              ? cpRefFor(item.counterpartCp)
+              : null
+          // the variant-margin check is uninformative when the two scripts'
+          // forms are near-identical
+          const marginUsable = !!(
+            cpRef?.ok && refSimilarity(targetRef!, cpRef) <= 0.85
+          )
+
+          let best: {
+            ink: Float32Array
+            z: number
+            pass: boolean
+            hardFail: boolean
+          } | null = null
+          const maxRounds = gated ? 3 : 1
+          for (let round = 0; round < maxRounds; round++) {
+            if (batchCancelRequested) break
+            if (round > 0) {
+              if (regenBudget <= 0) break
+              regenBudget--
+              gateRegens++
+            }
+            const styleImage = genCtx.userRaster.renderStyleImage(refs)
+            if (!styleImage) break
+            const { image } = await client.sample({
+              styleImage,
+              contentImage: contentTensor.slice(),
+              fontIndex: JIT_FONT_INDEX,
+              steps,
+              cfg: JIT_CFG,
+              seed: JIT_SEED + item.cp + round * 1000003,
+              ...jitEscalatedAnchor(round),
+            })
+            const ink = sampleToInk(image, JIT_CONTENT_SIZE)
+            if (!gated) {
+              best = { ink, z: 0, pass: true, hardFail: false }
+              break
+            }
+            const sc = scoreGlyph(ink, JIT_CONTENT_SIZE, targetRef!)
+            const verdict = gatePasses(sc, calib!)
+            const marginOk = marginUsable
+              ? glyphMatch(sc) -
+                  glyphMatch(scoreGlyph(ink, JIT_CONTENT_SIZE, cpRef!)) >=
+                -0.05
+              : true
+            const cand = {
+              ink,
+              z: gateZScore(sc, calib!),
+              pass: verdict.pass && marginOk,
+              hardFail: verdict.hardFail,
+            }
+            // non-hardFail beats hardFail regardless of z: shipping a usable
+            // best-of candidate is preferred over alias fallback
+            const better =
+              cand.pass ||
+              !best ||
+              (best.hardFail && !cand.hardFail) ||
+              (best.hardFail === cand.hardFail && cand.z > best.z)
+            if (better) best = cand
+            if (cand.pass) break
+          }
+          if (!best) throw new Error('generation produced no candidates')
+          if (!best.pass && best.hardFail)
+            throw new Error('structure gate: confidently broken glyph')
+          if (!best.pass) gateBestOf++
           const svgPath = traceGrayscaleImage(
-            ink,
+            best.ink,
             JIT_CONTENT_SIZE,
             JIT_CONTENT_SIZE,
             state.zi2ziThreshold,
@@ -4023,9 +4417,14 @@ async function runBatchFill(fontKey: string) {
         }
         completed++
         setZi2ziStatus(
-          `[${completed}/${plan.items.length}] Generating style-faithful glyphs… latest: '${item.char}'`,
+          `[${completed}/${plan.items.length}] Generating style-faithful glyphs… latest: '${item.char}'${gateRegens ? ` (${gateRegens} regens)` : ''}`,
         )
         updateBatchProgress(completed, plan.items.length)
+      }
+      if (gateBestOf > 0) {
+        console.info(
+          `structure gate: ${gateBestOf} glyphs shipped as best-of candidates without passing, ${gateRegens} regens used`,
+        )
       }
     } else {
       await ensureZi2ziReady(fontKey)
@@ -4137,6 +4536,7 @@ async function runBatchFill(fontKey: string) {
     elements.zi2ziModeSelect.disabled = false
     elements.managerChineseFontSelect.disabled = false
     elements.jitPresetSelect.disabled = false
+    elements.jitAnchorSelect.disabled = false
     updateBatchProgress(0, 0)
   }
 }

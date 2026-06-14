@@ -9,15 +9,21 @@
 // are CHW Float32Arrays in [-1,1]; requests run strictly one at a time except
 // 'abort'):
 //   init        {assetBase} -> {device, weightsMs}
-//   prepare     {samples: [{image(3*256*256), styleImage(3*128*128),
-//                contentImage(3*256*256), fontIndex}], nullFontIndex}
-//               -> streams {type:'prepare-progress', done, total},
-//                  ends {prepared, aborted}
+//   prepare-begin  {nullFontIndex} -> {}        (resets sample state)
+//   prepare-add    {samples: [{image(3*256*256), styleImage(3*128*128),
+//                  contentImage(3*256*256), fontIndex, prior?}]}
+//                  -> streams {type:'prepare-progress', done},
+//                     ends {total, aborted}     (send small batches; buffers
+//                     are transferred and the worker stores u8-quantized
+//                     targets plus encoded conditioning)
+//   prepare-finish {} -> {prepared, aborted}    (builds CFG null cond)
 //   train       {opts} -> streams {type:'progress', epoch, step,
 //                stepsPerEpoch, loss, lr}, ends {aborted}
 //   abort       {} -> {} immediately (out-of-band; the running prepare/train
 //               stops at its next checkpoint and resolves with aborted: true)
-//   sample      {styleImage, contentImage, fontIndex, steps, cfg, seed}
+//   sample      {styleImage, contentImage, fontIndex, steps, cfg, seed,
+//                tStart?, loraScale?, loraTStart?, contentCfg?}  (anchors:
+//                SDEdit init from contentImage, LoRA dial, decoupled CFG)
 //               -> {image: Float32Array [1,3,256,256] in ~[-1,1], ink black}
 //   export-lora {} -> {lora: Record<name, {data, shape}>}
 //   import-lora {lora, nullFontIndex} -> {}
@@ -56,7 +62,17 @@ let styleSession: any = null
 let contentSession: any = null
 
 let samples: TrainSample[] = []
+let stylePool: Float32Array[] = []
+// one pool entry per character: augmented variants share the same style
+// render, so they reuse the entry (and skip re-encoding)
+const stylePoolByKey = new Map<number, number>()
+let fontEmbInit: Float32Array | null = null
+let nullFontIdx = 1000
 let nullCond: NullCond | null = null
+// trained font/null-slot embeddings, fetched once after train/import and
+// reused for every generation cond (the null row is the CFG uncond register)
+let trainedFontEmb: Float32Array | null = null
+let trainedNullFontEmb: Float32Array | null = null
 
 async function fetchBuf(url: string): Promise<ArrayBuffer> {
   const res = await fetch(url)
@@ -322,27 +338,73 @@ async function handle(msg: any) {
         msg.batch || 2,
       )
       postMessage({ type: 'parity-done', id: msg.id, output: out })
-    } else if (msg.type === 'prepare') {
-      // prepare + train form one abortable run: the flag resets here (not in
-      // 'train'), so a Stop click during the minutes-long encode phase is
-      // honored instead of being wiped when the queued train starts
+    } else if (msg.type === 'prepare-begin') {
       abortRequested = false
       samples = []
+      stylePool = []
+      stylePoolByKey.clear()
+      trainedFontEmb = null
+      trainedNullFontEmb = null
+      nullFontIdx = msg.nullFontIndex
+      fontEmbInit = null
+      postMessage({ type: 'prepare-begun', id: msg.id, output: {} })
+    } else if (msg.type === 'prepare-add') {
       for (const s of msg.samples) {
         if (abortRequested) break
-        const cond = await encodeCond(s.styleImage, s.contentImage, s.fontIndex)
-        samples.push({ image: s.image, ...cond })
-        postMessage({
-          type: 'prepare-progress',
-          done: samples.length,
-          total: msg.samples.length,
+        const knownPool =
+          !s.prior && s.styleKey != null
+            ? stylePoolByKey.get(s.styleKey)
+            : undefined
+        const styleEmb =
+          knownPool != null
+            ? stylePool[knownPool]
+            : await encodeStyle(s.styleImage)
+        const contentEmb = await encodeContent(s.contentImage)
+        // quantize the target so a few hundred augmented samples fit in
+        // memory; the rasterizer's grays were u8-derived, so this round-trips
+        const imageU8 = new Uint8Array(s.image.length)
+        for (let i = 0; i < s.image.length; i++) {
+          imageU8[i] = Math.max(
+            0,
+            Math.min(255, Math.round((s.image[i] + 1) * 127.5)),
+          )
+        }
+        let poolIdx = -1
+        if (!s.prior) {
+          if (knownPool != null) {
+            poolIdx = knownPool
+          } else {
+            poolIdx = stylePool.length
+            stylePool.push(styleEmb)
+            if (s.styleKey != null) stylePoolByKey.set(s.styleKey, poolIdx)
+          }
+          if (!fontEmbInit) {
+            fontEmbInit = fontTable!.slice(
+              s.fontIndex * hidden,
+              (s.fontIndex + 1) * hidden,
+            )
+          }
+        }
+        samples.push({
+          imageU8,
+          contentEmb,
+          styleEmb,
+          prior: !!s.prior,
+          poolIdx,
         })
+        postMessage({ type: 'prepare-progress', done: samples.length })
       }
+      postMessage({
+        type: 'prepare-added',
+        id: msg.id,
+        output: { total: samples.length, aborted: abortRequested },
+      })
+    } else if (msg.type === 'prepare-finish') {
       if (!abortRequested) {
         // CFG null conditioning: white images + the null font slot
         const whiteStyle = new Float32Array(3 * 128 * 128).fill(1)
         const whiteContent = new Float32Array(3 * 256 * 256).fill(1)
-        nullCond = await encodeCond(whiteStyle, whiteContent, msg.nullFontIndex)
+        nullCond = await encodeCond(whiteStyle, whiteContent, nullFontIdx)
       }
       postMessage({
         type: 'prepared',
@@ -351,11 +413,14 @@ async function handle(msg: any) {
       })
     } else if (msg.type === 'train') {
       if (!trainer || !nullCond) throw new Error('not prepared')
-      await trainer.train(samples, nullCond, {
+      if (!fontEmbInit) throw new Error('no trainable font slot prepared')
+      await trainer.train(samples, stylePool, nullCond, fontEmbInit, {
         ...msg.opts,
         shouldStop: () => abortRequested,
         onProgress: (info) => postMessage({ type: 'progress', ...info }),
       })
+      trainedFontEmb = await trainer.trainedFontEmb()
+      trainedNullFontEmb = await trainer.trainedNullFontEmb()
       postMessage({
         type: 'train-done',
         id: msg.id,
@@ -363,18 +428,65 @@ async function handle(msg: any) {
       })
     } else if (msg.type === 'sample') {
       if (!trainer || !nullCond) throw new Error('not prepared')
-      const cond = buildCond(
-        await encodeStyle(msg.styleImage),
-        await encodeContent(msg.contentImage),
-        msg.fontIndex,
+      const styleEmb = await encodeStyle(msg.styleImage)
+      const contentEmb = await encodeContent(msg.contentImage)
+      const cond = buildCond(styleEmb, contentEmb, msg.fontIndex)
+      if (trainedFontEmb) {
+        // the fine-tune trains the font-slot embedding; generation must use
+        // the trained register, not the frozen table row
+        cond.fontEmb = trainedFontEmb
+        for (let i = 0; i < hidden; i++) {
+          cond.yEmb[i] = trainedFontEmb[i] + styleEmb[i] + contentEmb[i]
+        }
+      }
+      // the uncond/null-font registers are trained alongside the LoRA —
+      // generation must use the trained rows
+      let uncond = nullCond
+      if (trainedNullFontEmb) {
+        const yEmb = new Float32Array(hidden)
+        for (let i = 0; i < hidden; i++) {
+          yEmb[i] =
+            trainedNullFontEmb[i] +
+            nullCond.styleEmb[i] +
+            nullCond.contentEmb[i]
+        }
+        uncond = { ...nullCond, fontEmb: trainedNullFontEmb, yEmb }
+      }
+      // decoupled CFG content branch: real content, null style + font
+      let condContent
+      if (msg.contentCfg != null) {
+        condContent = buildCond(nullCond.styleEmb, contentEmb, nullFontIdx)
+        if (trainedNullFontEmb) {
+          condContent.fontEmb = trainedNullFontEmb
+          for (let i = 0; i < hidden; i++) {
+            condContent.yEmb[i] =
+              trainedNullFontEmb[i] + nullCond.styleEmb[i] + contentEmb[i]
+          }
+        }
+      }
+      const image = await trainer.sample(
+        cond,
+        uncond,
+        {
+          steps: msg.steps,
+          cfg: msg.cfg,
+          seed: msg.seed,
+          tStart: msg.tStart,
+          initImage: msg.tStart ? msg.contentImage : undefined,
+          initBlur: msg.initBlur,
+          loraScale: msg.loraScale,
+          loraTStart: msg.loraTStart,
+          contentCfg: msg.contentCfg,
+        },
+        condContent,
       )
-      const image = await trainer.sample(cond, nullCond, {
-        steps: msg.steps,
-        cfg: msg.cfg,
-        seed: msg.seed,
-      })
       postMessage({ type: 'sampled', id: msg.id, output: { image } }, [
         image.buffer,
+      ] as any)
+    } else if (msg.type === 'style-embed') {
+      const emb = await encodeStyle(msg.image)
+      postMessage({ type: 'style-embedded', id: msg.id, output: { emb } }, [
+        emb.buffer,
       ] as any)
     } else if (msg.type === 'export-lora') {
       if (!trainer) throw new Error('not initialized')
@@ -386,6 +498,9 @@ async function handle(msg: any) {
     } else if (msg.type === 'import-lora') {
       if (!trainer) throw new Error('not initialized')
       trainer.importLora(msg.lora)
+      trainedFontEmb = await trainer.trainedFontEmb()
+      trainedNullFontEmb = await trainer.trainedNullFontEmb()
+      nullFontIdx = msg.nullFontIndex ?? nullFontIdx
       // imported checkpoints are for generation: CFG still needs the null
       // conditioning, which prepare() normally sets up
       if (!nullCond) {

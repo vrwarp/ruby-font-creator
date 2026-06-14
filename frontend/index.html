@@ -1369,11 +1369,27 @@
                         class="select-control"
                         style="width: 100%"
                       >
-                        <option value="quick">Quick (~10 min)</option>
+                        <option value="quick">Quick (~12 min)</option>
                         <option value="standard" selected>
-                          Standard (~25 min)
+                          Standard (~30 min)
                         </option>
-                        <option value="thorough">Thorough (~50 min)</option>
+                        <option value="thorough">Thorough (~55 min)</option>
+                      </select>
+                    </div>
+                    <div class="input-field" style="flex: 1; min-width: 150px">
+                      <label for="jit-anchor-select">Structure Anchor</label>
+                      <select
+                        id="jit-anchor-select"
+                        class="select-control"
+                        style="width: 100%"
+                      >
+                        <option value="auto" selected>
+                          Auto (rescue failed glyphs only)
+                        </option>
+                        <option value="strong">
+                          Strong (anchor everything, softer style)
+                        </option>
+                        <option value="off">Off (never anchor)</option>
                       </select>
                     </div>
                     <div class="input-field" style="flex: 1; min-width: 150px">
@@ -1463,6 +1479,14 @@
                       model's rendition (bottom), on characters held out of
                       training:
                     </div>
+                    <div
+                      id="jit-preview-score"
+                      style="
+                        font-size: 0.75rem;
+                        color: var(--text-secondary);
+                        margin-bottom: 0.5rem;
+                      "
+                    ></div>
                     <div
                       id="jit-preview-grid"
                       style="display: flex; gap: 0.75rem; flex-wrap: wrap"
