@@ -876,7 +876,9 @@ body {
 
 .slide-line {
   display: flex;
-  flex-wrap: wrap;
+  /* No wrapping: the slide is scaled to fit the canvas (see fitWorshipSlide),
+     so each line stays a single row like a real projection slide. */
+  flex-wrap: nowrap;
   justify-content: center;
   align-items: flex-end;
 }
