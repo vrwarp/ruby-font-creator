@@ -239,6 +239,25 @@ export const ruby = {
         ]
       : [{ dx: 0, dy: 0 }]
 
+    // Optional rotation, baked directly into the path coordinates. The browser
+    // compiler only re-scales each path's `d` data and drops any SVG
+    // `transform` attribute, so side layouts (e.g. pinyin rotated to the right
+    // of the glyph) must rotate the geometry here to render consistently across
+    // the live preview, the in-browser build, and the CLI build.
+    const rotateDeg = options.rotate || 0
+    const hasRotation = rotateDeg !== 0
+    const rotateRad = (rotateDeg * Math.PI) / 180
+    const rotCos = Math.cos(rotateRad)
+    const rotSin = Math.sin(rotateRad)
+    const originX =
+      options.rotateOriginX !== undefined ? options.rotateOriginX : options.x
+    const originY =
+      options.rotateOriginY !== undefined ? options.rotateOriginY : options.y
+    const rotateX = (x: number, y: number) =>
+      originX + (x - originX) * rotCos - (y - originY) * rotSin
+    const rotateY = (x: number, y: number) =>
+      originY + (x - originX) * rotSin + (y - originY) * rotCos
+
     // Strokes are replaced by the weight-compensation offsets above, but
     // transforms (e.g. the rotated left/right layouts) must be preserved.
     const baseAttribs = Object.keys(options.attributes || {})
@@ -278,6 +297,29 @@ export const ruby = {
           if (newCmd.x2 !== undefined)
             newCmd.x2 = newCmd.x2 * scaleRatio + currentX + dx
           if (newCmd.y2 !== undefined) newCmd.y2 = newCmd.y2 + dy
+
+          if (hasRotation) {
+            // Rotate each coordinate pair together about the pivot. Command
+            // points always come in (x,y) pairs, so both members are present.
+            if (newCmd.x !== undefined && newCmd.y !== undefined) {
+              const rx = rotateX(newCmd.x, newCmd.y)
+              const ry = rotateY(newCmd.x, newCmd.y)
+              newCmd.x = rx
+              newCmd.y = ry
+            }
+            if (newCmd.x1 !== undefined && newCmd.y1 !== undefined) {
+              const rx1 = rotateX(newCmd.x1, newCmd.y1)
+              const ry1 = rotateY(newCmd.x1, newCmd.y1)
+              newCmd.x1 = rx1
+              newCmd.y1 = ry1
+            }
+            if (newCmd.x2 !== undefined && newCmd.y2 !== undefined) {
+              const rx2 = rotateX(newCmd.x2, newCmd.y2)
+              const ry2 = rotateY(newCmd.x2, newCmd.y2)
+              newCmd.x2 = rx2
+              newCmd.y2 = ry2
+            }
+          }
           return newCmd
         })
 
