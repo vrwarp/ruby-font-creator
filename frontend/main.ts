@@ -2042,6 +2042,19 @@ async function renderWorship() {
   elements.worshipSlideContent.innerHTML = ''
   let svgIdx = 0
 
+  // Intrinsic per-glyph width, and the fit-to-canvas scale, computed up front
+  // so blocks are rendered at their final size immediately (no flash of
+  // oversized glyphs that then animate/shrink into place).
+  const baseWidth = state.hanziSize * 1.4 * K * (state.characterWidth / 80)
+  const maxLineChars = slide.lines.reduce(
+    (max, line) => Math.max(max, line.hanzi.length),
+    0,
+  )
+  const scale = computeWorshipScale(
+    elements.worshipViewport,
+    maxLineChars * baseWidth,
+  )
+
   slide.lines.forEach((line) => {
     const lineEl = document.createElement('div')
     lineEl.className = 'slide-line'
@@ -2053,11 +2066,10 @@ async function renderWorship() {
 
       const block = document.createElement('div')
       block.className = 'ruby-char-block'
-      // Record the intrinsic (unscaled) block width. fitWorshipSlide() reads
-      // this to scale the whole slide down to the canvas on smaller screens.
-      const baseWidth = state.hanziSize * 1.4 * K * (state.characterWidth / 80)
+      // Record the intrinsic (unscaled) width so fitWorshipSlide() can rescale
+      // the slide on resize without rebuilding it.
       block.dataset.baseWidth = baseWidth.toString()
-      block.style.width = `${baseWidth}px`
+      block.style.width = `${baseWidth * scale}px`
 
       block.innerHTML = item.svg
       const svgEl = block.querySelector('svg')
@@ -2074,6 +2086,10 @@ async function renderWorship() {
 
     elements.worshipSlideContent.appendChild(lineEl)
   })
+
+  // Scale the row gap and English footer to match the glyphs.
+  elements.worshipSlideContent.style.gap = `${WORSHIP_BASE_GAP_REM * scale}rem`
+  elements.worshipSlideEnglish.style.fontSize = `${WORSHIP_BASE_FOOTER_REM * scale}rem`
 
   elements.worshipSlideEnglish.textContent = state.worshipSubtitleVisible
     ? slide.english
@@ -2100,10 +2116,10 @@ async function renderWorship() {
   elements.totalSlideNum.textContent = presetsWorship.length.toString()
   elements.activeStrategyLabel.textContent = `${state.strategy} squeeze`
 
-  // Scale the freshly-built slide to fit the canvas (faithful miniature on
-  // narrow/mobile viewports). Wait a frame so layout/clientWidth is settled.
-  fitWorshipSlide()
-  requestAnimationFrame(fitWorshipSlide)
+  // Safety net: if the canvas wasn't laid out yet at build time (e.g. the tab
+  // was just shown), re-measure next frame. Widths snap (no transition), so
+  // this is imperceptible when the up-front scale was already correct.
+  requestAnimationFrame(() => fitWorshipSlide())
 
   // Keep the fullscreen presentation clone in sync with slide navigation
   if (elements.presentationOverlay.classList.contains('active')) {
@@ -2115,11 +2131,31 @@ async function renderWorship() {
 const WORSHIP_BASE_GAP_REM = 2 // .slide-content row gap
 const WORSHIP_BASE_FOOTER_REM = 1.8 // .slide-footer font-size
 
-// Scale the worship slide content so the widest line fits the canvas width.
+// Factor that scales the worship slide so its widest line fits the canvas.
 // The character blocks are sized in absolute pixels off `hanziSize`, which
 // looks right on a wide desktop canvas but overflows the much narrower mobile
-// canvas. Scaling the whole slide (glyphs, row gap, English footer) by a
-// single factor keeps the preview a faithful miniature at any screen size.
+// canvas. Returns 1 (no scaling) when the canvas isn't laid out yet.
+function computeWorshipScale(
+  canvas: HTMLElement,
+  naturalWidth: number,
+): number {
+  if (!canvas || naturalWidth <= 0) return 1
+  const canvasWidth = canvas.clientWidth
+  if (canvasWidth <= 0) return 1 // tab hidden / not laid out yet
+
+  const style = getComputedStyle(canvas)
+  const padX =
+    parseFloat(style.paddingLeft || '0') + parseFloat(style.paddingRight || '0')
+  const available = canvasWidth - padX
+  if (available <= 0) return 1
+
+  // Leave a little breathing room; never upscale beyond the intrinsic design.
+  return Math.min(1, (available * 0.92) / naturalWidth)
+}
+
+// Rescale an already-built worship slide to fit its canvas (used on resize and
+// for the fullscreen presentation clone). Reads the intrinsic widths recorded
+// on each block so it never needs to rebuild the SVGs.
 function fitWorshipSlide(
   canvas: HTMLElement = elements.worshipViewport,
   content: HTMLElement = elements.worshipSlideContent,
@@ -2127,16 +2163,7 @@ function fitWorshipSlide(
 ) {
   if (!canvas || !content) return
 
-  const canvasWidth = canvas.clientWidth
-  if (canvasWidth <= 0) return // tab hidden / not laid out yet
-
-  const style = getComputedStyle(canvas)
-  const padX =
-    parseFloat(style.paddingLeft || '0') + parseFloat(style.paddingRight || '0')
-  const available = canvasWidth - padX
-  if (available <= 0) return
-
-  // Widest line at intrinsic (unscaled) size, derived from recorded base widths.
+  // Widest line at intrinsic (unscaled) size, from the recorded base widths.
   let naturalWidth = 0
   content.querySelectorAll<HTMLElement>('.slide-line').forEach((line) => {
     let lineWidth = 0
@@ -2147,8 +2174,7 @@ function fitWorshipSlide(
   })
   if (naturalWidth <= 0) return
 
-  // Leave a little breathing room; never upscale beyond the intrinsic design.
-  const scale = Math.min(1, (available * 0.92) / naturalWidth)
+  const scale = computeWorshipScale(canvas, naturalWidth)
 
   content.querySelectorAll<HTMLElement>('.ruby-char-block').forEach((block) => {
     const base = parseFloat(block.dataset.baseWidth || '0')

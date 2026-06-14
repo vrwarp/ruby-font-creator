@@ -889,7 +889,8 @@ body {
   flex-direction: column;
   align-items: center;
   position: relative;
-  transition: width var(--transition-normal);
+  /* Width is set to the fit-to-canvas size up front and snaps on resize; no
+     transition, so the slide never visibly "grows into" its final size. */
 }
 
 .ruby-char-block svg,
