@@ -1349,6 +1349,18 @@ function init() {
   refreshChineseFontsDropdown()
   fetchAndPopulateFonts()
   updateUI()
+  setupWorshipResize()
+}
+
+// Re-fit the worship slide whenever the canvas changes size (window resize,
+// orientation change, layout reflow). Cheap: only rescales existing nodes.
+function setupWorshipResize() {
+  if (typeof ResizeObserver === 'undefined') {
+    window.addEventListener('resize', fitWorshipSlide)
+    return
+  }
+  const observer = new ResizeObserver(() => fitWorshipSlide())
+  observer.observe(elements.worshipViewport)
 }
 
 // Set up App Color Theme
@@ -2012,7 +2024,11 @@ async function renderWorship() {
 
       const block = document.createElement('div')
       block.className = 'ruby-char-block'
-      block.style.width = `${state.hanziSize * 1.4 * K * (state.characterWidth / 80)}px`
+      // Record the intrinsic (unscaled) block width. fitWorshipSlide() reads
+      // this to scale the whole slide down to the canvas on smaller screens.
+      const baseWidth = state.hanziSize * 1.4 * K * (state.characterWidth / 80)
+      block.dataset.baseWidth = baseWidth.toString()
+      block.style.width = `${baseWidth}px`
 
       block.innerHTML = item.svg
       const svgEl = block.querySelector('svg')
@@ -2055,9 +2071,63 @@ async function renderWorship() {
   elements.totalSlideNum.textContent = presetsWorship.length.toString()
   elements.activeStrategyLabel.textContent = `${state.strategy} squeeze`
 
+  // Scale the freshly-built slide to fit the canvas (faithful miniature on
+  // narrow/mobile viewports). Wait a frame so layout/clientWidth is settled.
+  fitWorshipSlide()
+  requestAnimationFrame(fitWorshipSlide)
+
   // Keep the fullscreen presentation clone in sync with slide navigation
   if (elements.presentationOverlay.classList.contains('active')) {
     refreshPresentationClone()
+  }
+}
+
+// Base (design) sizes for the worship slide, scaled down to fit the canvas.
+const WORSHIP_BASE_GAP_REM = 2 // .slide-content row gap
+const WORSHIP_BASE_FOOTER_REM = 1.8 // .slide-footer font-size
+
+// Scale the worship slide content so the widest line fits the canvas width.
+// The character blocks are sized in absolute pixels off `hanziSize`, which
+// looks right on a wide desktop canvas but overflows the much narrower mobile
+// canvas. Scaling the whole slide (glyphs, row gap, English footer) by a
+// single factor keeps the preview a faithful miniature at any screen size.
+function fitWorshipSlide(
+  canvas: HTMLElement = elements.worshipViewport,
+  content: HTMLElement = elements.worshipSlideContent,
+  footer: HTMLElement | null = elements.worshipSlideEnglish,
+) {
+  if (!canvas || !content) return
+
+  const canvasWidth = canvas.clientWidth
+  if (canvasWidth <= 0) return // tab hidden / not laid out yet
+
+  const style = getComputedStyle(canvas)
+  const padX =
+    parseFloat(style.paddingLeft || '0') + parseFloat(style.paddingRight || '0')
+  const available = canvasWidth - padX
+  if (available <= 0) return
+
+  // Widest line at intrinsic (unscaled) size, derived from recorded base widths.
+  let naturalWidth = 0
+  content.querySelectorAll<HTMLElement>('.slide-line').forEach((line) => {
+    let lineWidth = 0
+    line.querySelectorAll<HTMLElement>('.ruby-char-block').forEach((block) => {
+      lineWidth += parseFloat(block.dataset.baseWidth || '0')
+    })
+    naturalWidth = Math.max(naturalWidth, lineWidth)
+  })
+  if (naturalWidth <= 0) return
+
+  // Leave a little breathing room; never upscale beyond the intrinsic design.
+  const scale = Math.min(1, (available * 0.92) / naturalWidth)
+
+  content.querySelectorAll<HTMLElement>('.ruby-char-block').forEach((block) => {
+    const base = parseFloat(block.dataset.baseWidth || '0')
+    block.style.width = `${base * scale}px`
+  })
+  content.style.gap = `${WORSHIP_BASE_GAP_REM * scale}rem`
+  if (footer) {
+    footer.style.fontSize = `${WORSHIP_BASE_FOOTER_REM * scale}rem`
   }
 }
 
@@ -2290,6 +2360,16 @@ function refreshPresentationClone() {
   clone.querySelectorAll('.nav-slide-btn').forEach((btn) => btn.remove())
 
   elements.presentationContent.appendChild(clone)
+
+  // The clone inherits the inline canvas's scale; re-fit it to its own
+  // (fullscreen) size so glyphs fill the projection frame correctly.
+  const cloneContent = clone.querySelector<HTMLElement>('.slide-content')
+  const cloneFooter = clone.querySelector<HTMLElement>('.slide-footer')
+  if (cloneContent) {
+    requestAnimationFrame(() =>
+      fitWorshipSlide(clone, cloneContent, cloneFooter),
+    )
+  }
 }
 
 // Present Fullscreen slide
