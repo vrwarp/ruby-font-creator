@@ -2153,9 +2153,11 @@ async function renderSandbox() {
       svgEl.style.overflow = 'visible'
 
       if (state.placement === 'right') {
-        // Glyph + rotated pinyin column both sit within the canvas bounds; a
-        // little vertical padding keeps long columns from touching the edge.
-        svgEl.setAttribute('viewBox', `0 -5 ${state.characterWidth} 90`)
+        // Glyph + rotated pinyin column. A little vertical padding keeps long
+        // columns off the edge; widen the box when the Offset knob pushes the
+        // column past the cell so the gap stays visible in the preview.
+        const extra = Math.max(0, state.verticalOffset - 4) + 5
+        svgEl.setAttribute('viewBox', `0 -5 ${state.characterWidth + extra} 90`)
       } else {
         const isPlacementTop = state.placement === 'top'
         const minY = isPlacementTop
@@ -2182,10 +2184,17 @@ async function renderSandbox() {
 // callers that render SVG directly — the compiler only reads each path's `d`.
 function placementLayout(canvasDims: { width: number; height: number }) {
   if (state.placement === 'right') {
+    const annoRight = layout.annotation.right(canvasDims)
     return {
       base: layout.base.left(canvasDims),
       annotation: {
-        ...layout.annotation.right(canvasDims),
+        ...annoRight,
+        // The "Offset" knob sets the gap between the glyph and the rotated
+        // column. Shifting x also moves the rotation pivot, so the whole column
+        // slides horizontally without changing its vertical centering. The
+        // slider's neutral default is 4, so we shift relative to that
+        // (positive = larger gap / column further right).
+        x: annoRight.x + (state.verticalOffset - 4),
         squeeze: state.opticalSqueeze,
         tracking: state.letterTracking,
         weight: state.fontWeight,
@@ -2232,6 +2241,8 @@ function generateCLIConfig() {
       base: layout.base.left(this.canvas),
       annotation: {
         ...layout.annotation.right(this.canvas),
+        // "Offset" knob = gap between the glyph and the rotated column.
+        x: layout.annotation.right(this.canvas).x + ${state.verticalOffset - 4},
         squeeze: ${state.opticalSqueeze},
         tracking: ${state.letterTracking.toFixed(3)},
         weight: ${state.fontWeight},
