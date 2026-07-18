@@ -60,6 +60,13 @@ def main() -> None:
     river = gloss_map["river"]
     love = gloss_map["love"]
     music = gloss_map["music"]
+    sun = gloss_map["sun"]
+    day = gloss_map["day"]
+    sunday = gloss_map["sunday"]
+    some = gloss_map["some"]
+    one = gloss_map["one"]
+    someone = gloss_map["someone"]
+    december = gloss_map["december"]
 
     # (label, text, gids that must appear, gids that must NOT appear)
     cases = [
@@ -89,6 +96,16 @@ def main() -> None:
          [gid_for(spring["lower"])], [gid_for(spring["alternates"][0]["lower"])]),
         ("no false context", "west bank",
          [gid_for(bank["lower"])], [gid_for(bank["alternates"][0]["lower"])]),
+        ("word containing two vocab words", "sunday",
+         [gid_for(sunday["lower"])],
+         [gid_for(sun["lower"]), gid_for(day["lower"])]),
+        ("compound beats its parts", "someone",
+         [gid_for(someone["lower"])],
+         [gid_for(some["lower"]), gid_for(one["lower"])]),
+        ("title-case month", "December",
+         [gid_for(december["title"])], [gid_for(december["lower"])]),
+        ("parts still ligate alone", "some day",
+         [gid_for(some["lower"]), gid_for(day["lower"])], []),
     ]
 
     failures = 0
