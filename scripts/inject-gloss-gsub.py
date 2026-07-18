@@ -15,11 +15,19 @@ shaping stay flat as the vocabulary grows to tens of thousands of words
 1. Small per-word lookups ONLY for words with context-triggered senses
    (e.g. "river bank" → 河岸). These run first, while the neighbouring words
    are still raw letter glyphs.
-2. One merged `gloss_words` lookup holding every default ligature:
-   - A single global pre-guard `ignore sub @LETTER @LETTER';` skips every
-     position that is preceded by a letter, so only word-start positions are
-     ever considered. This alone prevents "love" firing inside "clove", and
-     it works at start-of-text where no explicit space could be matched.
+2. Default ligatures merged into one lookup per first letter
+   (`gloss_words_a` … `gloss_words_z`). Sharding is required because a
+   single lookup with ~30k chain subtables overflows OpenType's 16-bit
+   subtable offsets even after Extension promotion ("All candidates
+   overflowed"); sharding by FIRST LETTER is the one split that preserves
+   correctness, since a prefix and any compound containing it ("sun",
+   "sunday") necessarily share a first letter and therefore a shard.
+   Within each shard:
+   - A global pre-guard `ignore sub @LETTER @LETTER';` (repeated per shard —
+     each lookup scans independently) skips every position preceded by a
+     letter, so only word-start positions are ever considered. This alone
+     prevents "love" firing inside "clove", and it works at start-of-text
+     where no explicit space could be matched.
    - Per word, one case-insensitive post-guard
      `ignore sub @L_s' @L_u' @L_n' @LETTER;` (built from [x X] classes)
      rejects matches followed by more letters ("sunday" ≠ "sun" + …).
@@ -198,8 +206,8 @@ def build_fea(gloss_map: list, cmap: dict) -> str:
         lines.append("")
         lookup_names.append(lookup_name)
 
-    # 2. One merged lookup with every default ligature.
-    word_rules = []
+    # 2. Default ligatures, sharded into one merged lookup per first letter.
+    shards = {}
     for entry in sorted(gloss_map, key=lambda e: (-len(e["word"]), e["word"])):
         word = entry["word"]
         subs = []
@@ -211,18 +219,20 @@ def build_fea(gloss_map: list, cmap: dict) -> str:
         if not subs:
             print(f"Warning: skipping '{word}': glyphs missing", file=sys.stderr)
             continue
-        word_rules.append(f"    ignore sub {case_class_guard(word)} @LETTER;")
-        word_rules.extend(subs)
+        rules = shards.setdefault(word[0], [])
+        rules.append(f"    ignore sub {case_class_guard(word)} @LETTER;")
+        rules.extend(subs)
 
-    if word_rules:
-        lines.append("lookup gloss_words {")
+    for letter in sorted(shards):
+        lookup_name = f"gloss_words_{letter}"
+        lines.append(f"lookup {lookup_name} {{")
         # Global pre-guard: only word-start positions (not preceded by a
         # letter) are ever considered; interior positions are consumed here.
         lines.append("    ignore sub @LETTER @LETTER';")
-        lines.extend(word_rules)
-        lines.append("} gloss_words;")
+        lines.extend(shards[letter])
+        lines.append(f"}} {lookup_name};")
         lines.append("")
-        lookup_names.append("gloss_words")
+        lookup_names.append(lookup_name)
 
     if not lookup_names:
         return ""
