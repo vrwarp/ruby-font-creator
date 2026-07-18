@@ -692,6 +692,9 @@ export const CURATED_GLOSS_ENTRIES: GlossEntry[] = [
   { word: 'melody', gloss: '旋律' },
   { word: 'movie', gloss: '电影' },
   { word: 'traffic', gloss: '交通' },
+  // Verb inflections whose ECDICT lemma leads with a noun sense:
+  { word: 'parked', gloss: '停车' },
+  { word: 'parking', gloss: '停车' },
   { word: 'money', gloss: '钱' },
   { word: 'sword', gloss: '剑' },
   { word: 'shield', gloss: '盾牌' },

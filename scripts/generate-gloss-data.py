@@ -5,10 +5,16 @@ the English gloss font — from ECDICT (github.com/skywind3000/ECDICT, MIT).
 
 Selection: entries tagged `zk` (中考, China's grade-9 exam list), `gk`
 (高考, high school), or `cet4` (college band 4 — needed because everyday
-words like "solution" and "community" carry only that tag). Together these
-approximate a 9th-grade English reading vocabulary, expanded with their
-inflected forms from ECDICT's `exchange` field (GSUB cannot stem, so every
-surface form needs an entry).
+words like "solution" and "community" carry only that tag), plus a
+frequency fallback: untagged words of 3+ letters whose COCA/BNC rank is
+within FREQ_FALLBACK_RANK (calibrated so "substitution", rank ~10.7k, is in
+while deep-vocabulary corpus noise like "squall"/"volition", rank ~19-20k,
+stays out). The exam lists omit many common derivations
+("substitute" is tagged, "substitution" is not — ECDICT's `exchange` field
+covers inflections, never derivations), and the fallback sweeps those in.
+Together these approximate a 9th-grade English reading vocabulary, expanded
+with their inflected forms from the `exchange` field (GSUB cannot stem, so
+every surface form needs an entry).
 
 Gloss extraction from the `translation` field: take the first sense line,
 strip the part-of-speech prefix, split on Chinese/ASCII separators, and keep
@@ -45,6 +51,10 @@ ECDICT_URL = (
 )
 
 GRADE_TAGS = {'zk', 'gk', 'cet4'}
+# Untagged words at or above this corpus-frequency rank are included too;
+# they must have 3+ letters (two-letter corpus noise like "el"/"da" ranks
+# deceptively high).
+FREQ_FALLBACK_RANK = 12000
 MAX_GLOSS_LEN = 6
 WORD_RE = re.compile(r'^[a-z]{2,20}$')
 HAN_RE = re.compile(r'^[㐀-䶿一-鿿]+$')
@@ -124,7 +134,11 @@ def main():
         for row in csv.DictReader(f):
             word = row['word']
             tags = set((row.get('tag') or '').split())
-            if not tags & GRADE_TAGS or not WORD_RE.fullmatch(word):
+            if not WORD_RE.fullmatch(word):
+                continue
+            graded = bool(tags & GRADE_TAGS)
+            frequent = len(word) >= 3 and frequency(row) <= FREQ_FALLBACK_RANK
+            if not graded and not frequent:
                 continue
             gloss = extract_gloss(row.get('translation') or '')
             if gloss is None:
