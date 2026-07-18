@@ -102,6 +102,9 @@ async function start(args: EnglishCliArguments): Promise<void> {
 </svg>`
 
   await mkdir(outDir, { recursive: true })
+  console.log(
+    `composed ${plan.jobs.length + asciiCount} glyphs (${Math.round(svgFontString.length / 1e6)} MB SVG font); running svg2ttf...`,
+  )
   const ttf = svg2ttf(svgFontString, {})
   const ttfPath = path.join(outDir, `${fontName}.ttf`)
   await writeFile(ttfPath, Buffer.from(ttf.buffer))
