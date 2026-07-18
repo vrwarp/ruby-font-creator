@@ -136,9 +136,8 @@ function buildPreviewHtml(fontName: string): string {
 <body>
 <p>Praise God with joy and singing</p>
 <p>Amazing grace, how sweet the sound</p>
-<p>We worship the King of glory forever</p>
-<p>My father reads books every morning</p>
-<p>The children eat bread and drink milk</p>
+<p>The ancient scientists discovered that knowledge requires patience</p>
+<p>Although the environment continues changing, communities develop practical solutions</p>
 <p>river bank / bank / hot spring / spring / traffic light / movie star</p>
 <p>Sunday morning we sing a new song together</p>
 <p>lovely clove glovebank (no substitution inside words)</p>

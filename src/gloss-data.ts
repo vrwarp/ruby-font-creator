@@ -1,3 +1,4 @@
+import generatedGlossJson from './gloss-generated.json' with { type: 'json' }
 import type { GlossEntry } from './types.js'
 
 /**
@@ -23,10 +24,13 @@ import type { GlossEntry } from './types.js'
  *   equivalent (the/a/of/will/would…) are deliberately absent: glossing them
  *   is noise, and an unglossed word renders as plain English.
  *
- * Vocabulary mirrors the project's focus: high-frequency general English
- * (with common inflected forms) plus evangelical worship vocabulary.
+ * The full vocabulary is this curated list merged with the generated
+ * 9th-grade-level bulk dictionary (src/gloss-generated.json, distilled from
+ * ECDICT's zk/gk graded word lists by scripts/generate-gloss-data.py).
+ * Curated entries always win: they carry the polysemy alternates and the
+ * hand-checked glosses for the highest-frequency words.
  */
-export const GLOSS_ENTRIES: GlossEntry[] = [
+export const CURATED_GLOSS_ENTRIES: GlossEntry[] = [
   // --- worship / faith vocabulary ---
   { word: 'god', gloss: '神' },
   { word: 'lord', gloss: '主' },
@@ -891,4 +895,19 @@ export const GLOSS_ENTRIES: GlossEntry[] = [
   { word: 'october', gloss: '十月' },
   { word: 'november', gloss: '十一月' },
   { word: 'december', gloss: '十二月' },
+]
+
+/**
+ * Bulk 9th-grade-level vocabulary generated from ECDICT (see
+ * scripts/generate-gloss-data.py). Regenerate with:
+ *   python3 scripts/generate-gloss-data.py
+ */
+const GENERATED_GLOSS_ENTRIES: GlossEntry[] = generatedGlossJson
+
+const curatedWords = new Set(CURATED_GLOSS_ENTRIES.map((entry) => entry.word))
+
+/** Full vocabulary: curated entries first (authoritative), then generated. */
+export const GLOSS_ENTRIES: GlossEntry[] = [
+  ...CURATED_GLOSS_ENTRIES,
+  ...GENERATED_GLOSS_ENTRIES.filter((entry) => !curatedWords.has(entry.word)),
 ]

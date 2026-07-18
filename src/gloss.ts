@@ -116,6 +116,12 @@ export function composeAsciiGlyph(
 /** First PUA codepoint used for word composites; the polyphonic pinyin
  * alternates occupy U+E000–U+E03A, so gloss composites start at U+E100. */
 export const GLOSS_PUA_START = 0xe100
+/** Last BMP PUA codepoint; larger vocabularies overflow into plane 15. */
+export const GLOSS_BMP_PUA_END = 0xf8ff
+/** Supplementary PUA-A (plane 15), U+F0000–U+FFFFD: ~65k more slots. The
+ * font's cmap gains a format-12 subtable for these (svg2ttf emits one). */
+export const GLOSS_SUPP_PUA_START = 0xf0000
+export const GLOSS_SUPP_PUA_END = 0xffffd
 
 /** One composite glyph to build: the rendered text + the gloss above it. */
 export interface GlossGlyphJob {
@@ -165,6 +171,12 @@ export function buildGlossPlan(entries: GlossEntry[]): GlossPlan {
   let next = GLOSS_PUA_START
 
   const claim = (text: string, gloss: string): string => {
+    if (next > GLOSS_BMP_PUA_END && next < GLOSS_SUPP_PUA_START) {
+      next = GLOSS_SUPP_PUA_START
+    }
+    if (next > GLOSS_SUPP_PUA_END) {
+      throw new Error('gloss vocabulary exceeds Private Use Area capacity')
+    }
     const codepoint = formatCodepoint(next++)
     jobs.push({ codepoint, text, gloss })
     return codepoint

@@ -119,12 +119,25 @@ The command-line build is a two-step process:
 The inverse of the pinyin font: an English font that draws the Chinese
 translation above each vocabulary word. Because English words have no
 codepoint of their own, this variant is built entirely out of GSUB — every
-word in the dictionary (`src/gloss-data.ts`) becomes a pre-composed
-composite glyph (English word + Chinese gloss) at a PUA codepoint
-(U+E100+), reached via `calt` ligature rules with `ignore sub` boundary
-guards (so `love` never fires inside `clove` or `lovely`). Polysemous words
-carry context-triggered senses, the word-level analogue of the polyphonic
-rules: `river bank` glosses 河岸 while a standalone `bank` glosses 银行.
+word in the dictionary becomes a pre-composed composite glyph (the English
+word with its Chinese gloss above) at a PUA codepoint (U+E100+, overflowing
+into the plane-15 supplementary PUA via a format-12 cmap), reached via
+`calt` ligature rules with `ignore sub` boundary guards (so `love` never
+fires inside `clove` or `lovely`). Polysemous words carry context-triggered
+senses, the word-level analogue of the polyphonic rules: `river bank`
+glosses 河岸 while a standalone `bank` glosses 银行.
+
+The vocabulary (~10k surface forms) has two layers:
+
+- **Curated** (`src/gloss-data.ts`): hand-checked glosses for the
+  highest-frequency words plus worship vocabulary, and all polysemy
+  alternates. Always wins on conflicts.
+- **Generated** (`src/gloss-generated.json`, committed): a 9th-grade
+  reading vocabulary distilled from [ECDICT](https://github.com/skywind3000/ECDICT)
+  (MIT) — all `zk`/`gk` graded lemmas with a usable pure-Han gloss, expanded
+  with their inflected forms (GSUB cannot stem, so every surface form needs
+  its own entry). Regenerate with `python3 scripts/generate-gloss-data.py`
+  (auto-downloads the ~66 MB `ecdict.csv` into `data/english/`, gitignored).
 
 ```bash
 # Compose composites and compile the TTF (also emits gloss-map.json + preview.html)

@@ -1,9 +1,12 @@
 import path from 'node:path'
 import { beforeAll, describe, expect, test } from 'vitest'
-import { GLOSS_ENTRIES } from '../src/gloss-data.js'
+import { CURATED_GLOSS_ENTRIES, GLOSS_ENTRIES } from '../src/gloss-data.js'
 import {
   DEFAULT_GLOSS_LAYOUT,
+  GLOSS_BMP_PUA_END,
   GLOSS_PUA_START,
+  GLOSS_SUPP_PUA_END,
+  GLOSS_SUPP_PUA_START,
   buildGlossPlan,
   composeAsciiGlyph,
   composeWordGlyph,
@@ -60,10 +63,24 @@ describe('buildGlossPlan()', () => {
   test('assigns unique PUA codepoints from U+E100, clear of the pinyin alternates', () => {
     const codepoints = plan.jobs.map((job) => job.codepoint)
     expect(new Set(codepoints).size).toBe(codepoints.length)
+    let inSupplementary = 0
     for (const codepoint of codepoints) {
       const cp = parseInt(codepoint.replace('U+', ''), 16)
-      expect(cp).toBeGreaterThanOrEqual(GLOSS_PUA_START)
-      expect(cp).toBeLessThanOrEqual(0xf8ff)
+      const inBmpPua = cp >= GLOSS_PUA_START && cp <= GLOSS_BMP_PUA_END
+      const inSuppPua = cp >= GLOSS_SUPP_PUA_START && cp <= GLOSS_SUPP_PUA_END
+      expect(inBmpPua || inSuppPua).toBe(true)
+      if (inSuppPua) inSupplementary++
+    }
+    // The 9th-grade vocabulary overflows the BMP PUA into plane 15.
+    expect(inSupplementary).toBeGreaterThan(0)
+  })
+
+  test('generated vocabulary merges under the curated entries', () => {
+    expect(GLOSS_ENTRIES.length).toBeGreaterThan(9000)
+    // Curated entries come first and keep their hand-checked glosses.
+    const merged = new Map(GLOSS_ENTRIES.map((e) => [e.word, e]))
+    for (const curated of CURATED_GLOSS_ENTRIES) {
+      expect(merged.get(curated.word)).toBe(curated)
     }
   })
 
