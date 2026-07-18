@@ -8,19 +8,28 @@ entirely out of GSUB: every vocabulary word is ligated into its pre-composed
 composite glyph (English word + Chinese gloss above), parked at a PUA
 codepoint by english.ts.
 
-For each word the generator emits one lookup containing, in match order:
+Rule architecture — designed so that both feaLib compile time and runtime
+shaping stay flat as the vocabulary grows to tens of thousands of words
+(one lookup per word is quadratic in both and melts down around 10k words):
 
-1. `ignore sub` boundary guards on both sides against a letter class, so
-   "love" never fires inside "clove" or "lovely". Guards also handle start
-   and end of text ("not preceded by a letter" is true there), which GSUB
-   could not express with explicit space matching — and by never matching the
-   space glyph for boundaries we stay on layout engines' per-word shaping
-   fast path.
-2. Context-triggered sense rules (e.g. "river bank" → 河岸 composite). The
-   preceding word is matched both as its own ligated composite (the normal
-   case — its lookup already ran) and as raw letters (robust to lookup
-   ordering), directly analogous to build_context_classes in inject-gsub.py.
-3. Default sense rules for the lowercase and title-case variants.
+1. Small per-word lookups ONLY for words with context-triggered senses
+   (e.g. "river bank" → 河岸). These run first, while the neighbouring words
+   are still raw letter glyphs.
+2. One merged `gloss_words` lookup holding every default ligature:
+   - A single global pre-guard `ignore sub @LETTER @LETTER';` skips every
+     position that is preceded by a letter, so only word-start positions are
+     ever considered. This alone prevents "love" firing inside "clove", and
+     it works at start-of-text where no explicit space could be matched.
+   - Per word, one case-insensitive post-guard
+     `ignore sub @L_s' @L_u' @L_n' @LETTER;` (built from [x X] classes)
+     rejects matches followed by more letters ("sunday" ≠ "sun" + …).
+   - Then the lowercase and title-case ligature subs.
+   Rules are ordered longest-word-first, so at a shared word-start position
+   a compound ("sunday") matches before its prefix ("sun") can be rejected
+   or fire.
+
+Within a lookup the first matching rule wins and `ignore` consumes the
+position, which is exactly the precedence the ordering above relies on.
 
 Usage:
     python3 scripts/inject-gloss-gsub.py <font.ttf> <gloss-map.json> [output.ttf]
@@ -79,12 +88,17 @@ def marked(seq):
     return " ".join(f"{g}'" for g in seq)
 
 
+def case_class_guard(word: str) -> str:
+    """Marked case-insensitive class sequence for `word`, e.g. "@L_s' @L_u'"."""
+    return " ".join(f"@L_{char}'" for char in word)
+
+
 def context_backtracks(names: GlyphNames, alt: dict, by_word: dict):
     """All backtrack strings that represent `alt['before']` + space.
 
-    The preceding word may appear either already ligated by its own lookup
-    (as its lowercase or title-case composite) or as raw letters, so every
-    form is matched; rules then work regardless of lookup order.
+    Context lookups run before the merged default lookup, so the preceding
+    word is normally still raw letters; its ligated composites are matched
+    too, for robustness against lookup reordering.
     """
     before = alt["before"]
     space = names.get(0x20, "space")
@@ -92,6 +106,15 @@ def context_backtracks(names: GlyphNames, alt: dict, by_word: dict):
         return []
 
     backtracks = []
+    lower_seq = letter_sequence(names, before, before)
+    if lower_seq:
+        first_title = names.for_char(before[0].upper(), before)
+        first = (
+            f"[{lower_seq[0]} {first_title}]" if first_title else lower_seq[0]
+        )
+        raw = " ".join([first] + lower_seq[1:])
+        backtracks.append(f"{raw} {space}")
+
     entry = by_word.get(before)
     if entry is not None:
         lig_forms = []
@@ -102,15 +125,6 @@ def context_backtracks(names: GlyphNames, alt: dict, by_word: dict):
         if lig_forms:
             backtracks.append(f"[{' '.join(lig_forms)}] {space}")
 
-    lower_seq = letter_sequence(names, before, before)
-    if lower_seq:
-        first_title = names.for_char(before[0].upper(), before)
-        first = (
-            f"[{lower_seq[0]} {first_title}]" if first_title else lower_seq[0]
-        )
-        raw = " ".join([first] + lower_seq[1:])
-        backtracks.append(f"{raw} {space}")
-
     return backtracks
 
 
@@ -119,10 +133,14 @@ def build_fea(gloss_map: list, cmap: dict) -> str:
     by_word = {entry["word"]: entry for entry in gloss_map}
 
     letters = []
-    for cp in list(range(ord("a"), ord("z") + 1)) + list(range(ord("A"), ord("Z") + 1)):
-        name = cmap.get(cp)
-        if name:
-            letters.append(name)
+    case_classes = []
+    for cp in range(ord("a"), ord("z") + 1):
+        lower = cmap.get(cp)
+        upper = cmap.get(cp - 0x20)
+        pair = [g for g in (lower, upper) if g]
+        letters.extend(pair)
+        if pair:
+            case_classes.append(f"@L_{chr(cp)} = [{' '.join(pair)}];")
 
     lines = [
         "# Auto-generated GSUB calt rules for the English gloss font",
@@ -132,30 +150,35 @@ def build_fea(gloss_map: list, cmap: dict) -> str:
         "languagesystem latn dflt;",
         "",
         f"@LETTER = [{' '.join(letters)}];",
+        *case_classes,
         "",
     ]
 
     lookup_names = []
+
+    # 1. Per-word context lookups for alternate senses, before the merged
+    #    default lookup so neighbours are still raw letters.
     for entry in gloss_map:
+        alternates = entry.get("alternates") or []
+        if not alternates:
+            continue
         word = entry["word"]
-        variants = []  # (marked letter sequence, target composite) per case
+        variants = []
         for key, text in (("lower", word), ("title", word[0].upper() + word[1:])):
             seq = letter_sequence(names, text, word)
-            target = names.get(parse_codepoint(entry[key]), f"{word}.{key}")
-            if seq and target:
-                variants.append((seq, key, target))
+            if seq:
+                variants.append((seq, key))
         if not variants:
-            print(f"Warning: skipping '{word}': glyphs missing", file=sys.stderr)
             continue
 
-        lookup_name = f"gloss_{word}"
-        rules = []
-        for seq, _key, _target in variants:
-            rules.append(f"    ignore sub @LETTER {marked(seq)};")
-            rules.append(f"    ignore sub {marked(seq)} @LETTER;")
-        for alt in entry.get("alternates", []):
+        rules = [
+            f"    ignore sub @LETTER {case_class_guard(word)};",
+            f"    ignore sub {case_class_guard(word)} @LETTER;",
+        ]
+        n_context_rules = 0
+        for alt in alternates:
             for backtrack in context_backtracks(names, alt, by_word):
-                for seq, key, _target in variants:
+                for seq, key in variants:
                     alt_target = names.get(
                         parse_codepoint(alt[key]), f"{word}.{alt['before']}.{key}"
                     )
@@ -164,14 +187,42 @@ def build_fea(gloss_map: list, cmap: dict) -> str:
                             f"    sub {backtrack} {marked(seq)} by {alt_target};"
                             f"  # {alt['before']} {word} -> {alt['gloss']}"
                         )
-        for seq, _key, target in variants:
-            rules.append(f"    sub {marked(seq)} by {target};")
+                        n_context_rules += 1
+        if not n_context_rules:
+            continue
 
+        lookup_name = f"gloss_ctx_{word}"
         lines.append(f"lookup {lookup_name} {{")
         lines.extend(rules)
         lines.append(f"}} {lookup_name};")
         lines.append("")
         lookup_names.append(lookup_name)
+
+    # 2. One merged lookup with every default ligature.
+    word_rules = []
+    for entry in sorted(gloss_map, key=lambda e: (-len(e["word"]), e["word"])):
+        word = entry["word"]
+        subs = []
+        for key, text in (("lower", word), ("title", word[0].upper() + word[1:])):
+            seq = letter_sequence(names, text, word)
+            target = names.get(parse_codepoint(entry[key]), f"{word}.{key}")
+            if seq and target:
+                subs.append(f"    sub {marked(seq)} by {target};")
+        if not subs:
+            print(f"Warning: skipping '{word}': glyphs missing", file=sys.stderr)
+            continue
+        word_rules.append(f"    ignore sub {case_class_guard(word)} @LETTER;")
+        word_rules.extend(subs)
+
+    if word_rules:
+        lines.append("lookup gloss_words {")
+        # Global pre-guard: only word-start positions (not preceded by a
+        # letter) are ever considered; interior positions are consumed here.
+        lines.append("    ignore sub @LETTER @LETTER';")
+        lines.extend(word_rules)
+        lines.append("} gloss_words;")
+        lines.append("")
+        lookup_names.append("gloss_words")
 
     if not lookup_names:
         return ""
