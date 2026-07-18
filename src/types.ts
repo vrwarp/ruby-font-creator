@@ -25,6 +25,24 @@ export interface GlyphEntry {
   alternates?: AlternateReading[]
 }
 
+/**
+ * An alternate (context-dependent) Chinese gloss for an English word — the
+ * word-level analogue of PolyphonicContext. The alternate applies when the
+ * word is immediately preceded by `before` and a space (e.g. "river bank"
+ * glosses 河岸 instead of the default 银行).
+ */
+export interface GlossAlternate {
+  gloss: string // alternate Chinese gloss, e.g. "河岸"
+  before: string // preceding word (lowercase) that triggers it, e.g. "river"
+}
+
+/** An English vocabulary word mapped to the Chinese gloss drawn above it */
+export interface GlossEntry {
+  word: string // lowercase ASCII word, e.g. "bank"
+  gloss: string // default Chinese gloss, e.g. "银行"
+  alternates?: GlossAlternate[]
+}
+
 /** Canvas dimensions for SVG layout */
 export interface CanvasDimensions {
   width: number

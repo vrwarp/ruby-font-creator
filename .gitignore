@@ -40,3 +40,4 @@ coverage/
 src/config/web-temp.ts
 scratch/
 __pycache__/
+data/english/ecdict.csv

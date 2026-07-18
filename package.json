@@ -14,6 +14,9 @@
   "scripts": {
     "build:font": "NODE_OPTIONS=\"--max-old-space-size=8192\" tsx ./index.ts",
     "build:gsub": "python3 scripts/inject-gsub.py build/ruby-font-creator.ttf build/polyphonic-map.json",
+    "build:english": "NODE_OPTIONS=\"--max-old-space-size=14000\" tsx ./english.ts",
+    "build:english-gsub": "python3 scripts/inject-gloss-gsub.py build/english/english-gloss.ttf build/english/gloss-map.json",
+    "verify:english": "python3 scripts/verify-gloss-shaping.py build/english/english-gloss.ttf build/english/gloss-map.json",
     "build": "tsc",
     "build:web": "vite build frontend",
     "dev": "vite frontend",

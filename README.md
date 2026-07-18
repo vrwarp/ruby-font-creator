@@ -114,6 +114,48 @@ The command-line build is a two-step process:
    npm run build:gsub
    ```
 
+### 3. English Gloss Font Builder (experimental)
+
+The inverse of the pinyin font: an English font that draws the Chinese
+translation above each vocabulary word. Because English words have no
+codepoint of their own, this variant is built entirely out of GSUB — every
+word in the dictionary becomes a pre-composed composite glyph (the English
+word with its Chinese gloss above) at a PUA codepoint (U+E100+, overflowing
+into the plane-15 supplementary PUA via a format-12 cmap), reached via
+`calt` ligature rules with `ignore sub` boundary guards (so `love` never
+fires inside `clove` or `lovely`). Polysemous words carry context-triggered
+senses, the word-level analogue of the polyphonic rules: `river bank`
+glosses 河岸 while a standalone `bank` glosses 银行.
+
+The vocabulary (~25k surface forms) has two layers:
+
+- **Curated** (`src/gloss-data.ts`): hand-checked glosses for the
+  highest-frequency words plus worship vocabulary, and all polysemy
+  alternates. Always wins on conflicts.
+- **Generated** (`src/gloss-generated.json`, committed): a 9th-grade
+  reading vocabulary distilled from [ECDICT](https://github.com/skywind3000/ECDICT)
+  (MIT) — all `zk`/`gk`/`cet4` graded lemmas with a usable pure-Han gloss,
+  plus untagged words within corpus-frequency rank 12k (the exam lists omit
+  common derivations like "substitution"), expanded with their inflected
+  forms (GSUB cannot stem, so every surface form needs its own entry).
+  Regenerate with `python3 scripts/generate-gloss-data.py` (auto-downloads
+  the ~66 MB `ecdict.csv` into `data/english/`, gitignored).
+
+```bash
+# Compose composites and compile the TTF (also emits gloss-map.json + preview.html)
+npm run build:english
+# Generate the .fea and inject GSUB calt rules (requires pip3 install fonttools)
+npm run build:english-gsub
+# Shape sample text with HarfBuzz and assert the rules behave
+# (requires pip3 install uharfbuzz)
+npm run verify:english
+```
+
+Open `build/english/preview.html` in a browser to see the substitutions
+live. The base English text uses PT Sans Narrow on a reduced baseline; the
+gloss row uses Droid Sans Fallback; both are configurable via
+`--baseFont` / `--glossFont`.
+
 ---
 
 ## Development & Testing
