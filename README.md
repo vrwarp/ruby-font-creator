@@ -114,6 +114,33 @@ The command-line build is a two-step process:
    npm run build:gsub
    ```
 
+### 3. English Gloss Font Builder (experimental)
+
+The inverse of the pinyin font: an English font that draws the Chinese
+translation above each vocabulary word. Because English words have no
+codepoint of their own, this variant is built entirely out of GSUB — every
+word in the dictionary (`src/gloss-data.ts`) becomes a pre-composed
+composite glyph (English word + Chinese gloss) at a PUA codepoint
+(U+E100+), reached via `calt` ligature rules with `ignore sub` boundary
+guards (so `love` never fires inside `clove` or `lovely`). Polysemous words
+carry context-triggered senses, the word-level analogue of the polyphonic
+rules: `river bank` glosses 河岸 while a standalone `bank` glosses 银行.
+
+```bash
+# Compose composites and compile the TTF (also emits gloss-map.json + preview.html)
+npm run build:english
+# Generate the .fea and inject GSUB calt rules (requires pip3 install fonttools)
+npm run build:english-gsub
+# Shape sample text with HarfBuzz and assert the rules behave
+# (requires pip3 install uharfbuzz)
+npm run verify:english
+```
+
+Open `build/english/preview.html` in a browser to see the substitutions
+live. The base English text uses PT Sans Narrow on a reduced baseline; the
+gloss row uses Droid Sans Fallback; both are configurable via
+`--baseFont` / `--glossFont`.
+
 ---
 
 ## Development & Testing

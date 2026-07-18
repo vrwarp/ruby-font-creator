@@ -17,6 +17,7 @@
   "include": [
     "src/**/*",
     "index.ts",
+    "english.ts",
     "test/**/*",
     "data/chinese/**/*",
     "frontend/raw-imports.d.ts"
