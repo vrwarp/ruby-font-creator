@@ -127,17 +127,18 @@ fires inside `clove` or `lovely`). Polysemous words carry context-triggered
 senses, the word-level analogue of the polyphonic rules: `river bank`
 glosses 河岸 while a standalone `bank` glosses 银行.
 
-The vocabulary (~10k surface forms) has two layers:
+The vocabulary (~14k surface forms) has two layers:
 
 - **Curated** (`src/gloss-data.ts`): hand-checked glosses for the
   highest-frequency words plus worship vocabulary, and all polysemy
   alternates. Always wins on conflicts.
 - **Generated** (`src/gloss-generated.json`, committed): a 9th-grade
   reading vocabulary distilled from [ECDICT](https://github.com/skywind3000/ECDICT)
-  (MIT) — all `zk`/`gk` graded lemmas with a usable pure-Han gloss, expanded
-  with their inflected forms (GSUB cannot stem, so every surface form needs
-  its own entry). Regenerate with `python3 scripts/generate-gloss-data.py`
-  (auto-downloads the ~66 MB `ecdict.csv` into `data/english/`, gitignored).
+  (MIT) — all `zk`/`gk`/`cet4` graded lemmas with a usable pure-Han gloss,
+  expanded with their inflected forms (GSUB cannot stem, so every surface
+  form needs its own entry). Regenerate with
+  `python3 scripts/generate-gloss-data.py` (auto-downloads the ~66 MB
+  `ecdict.csv` into `data/english/`, gitignored).
 
 ```bash
 # Compose composites and compile the TTF (also emits gloss-map.json + preview.html)

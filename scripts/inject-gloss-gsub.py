@@ -8,42 +8,52 @@ entirely out of GSUB: every vocabulary word is ligated into its pre-composed
 composite glyph (English word + Chinese gloss above), parked at a PUA
 codepoint by english.ts.
 
-Rule architecture — designed so that both feaLib compile time and runtime
-shaping stay flat as the vocabulary grows to tens of thousands of words
-(one lookup per word is quadratic in both and melts down around 10k words):
+The GSUB table is built directly with fontTools otTables rather than through
+feaLib. feaLib compiles every chained-context rule to its own format-3
+(coverage-based) subtable; at ~10k words that is ~20-30k subtables, whose
+2-byte lookup-header offsets alone exceed OpenType's 16-bit offset arithmetic
+— both the HarfBuzz repacker and fontTools' overflow resolution give up
+("All candidates overflowed"). Class-based format-2 chained contexts encode
+hundreds of rules per subtable, collapsing the whole vocabulary into a few
+dozen subtables that pack trivially (and compile in seconds instead of
+minutes).
 
-1. Small per-word lookups ONLY for words with context-triggered senses
-   (e.g. "river bank" → 河岸). These run first, while the neighbouring words
-   are still raw letter glyphs.
-2. Default ligatures merged into one lookup per first letter
-   (`gloss_words_a` … `gloss_words_z`). Sharding is required because a
-   single lookup with ~30k chain subtables overflows OpenType's 16-bit
-   subtable offsets even after Extension promotion ("All candidates
-   overflowed"); sharding by FIRST LETTER is the one split that preserves
-   correctness, since a prefix and any compound containing it ("sun",
-   "sunday") necessarily share a first letter and therefore a shard.
-   Within each shard:
-   - A global pre-guard `ignore sub @LETTER @LETTER';` (repeated per shard —
-     each lookup scans independently) skips every position preceded by a
-     letter, so only word-start positions are ever considered. This alone
-     prevents "love" firing inside "clove", and it works at start-of-text
-     where no explicit space could be matched.
-   - Per word, one case-insensitive post-guard
-     `ignore sub @L_s' @L_u' @L_n' @LETTER;` (built from [x X] classes)
-     rejects matches followed by more letters ("sunday" ≠ "sun" + …).
-   - Then the lowercase and title-case ligature subs.
-   Rules are ordered longest-word-first, so at a shared word-start position
-   a compound ("sunday") matches before its prefix ("sun") can be rejected
-   or fire.
+Rule architecture, per chunk of the vocabulary (chunks keep each subtable's
+internal 16-bit offsets comfortable):
 
-Within a lookup the first matching rule wins and `ignore` consumes the
-position, which is exactly the precedence the ordering above relies on.
+* One LigatureSubst lookup (LIG) mapping each chunk word's letter sequences
+  (lowercase and title-case) to its composite glyph.
+* One ChainContextSubst format-2 lookup gating where LIG may apply. Its
+  input ClassDef puts [x X] into one class per letter; backtrack and
+  lookahead ClassDefs put every letter into class 1. Each first-letter
+  class set holds, in order:
+  1. a pre-guard rule (backtrack=[letter], no substitutions): any letter
+     preceded by a letter is consumed, so only word-start positions are
+     ever considered — "love" cannot fire inside "clove", and start of
+     text needs no space matching;
+  2. per word, longest first: a post-guard rule (input=word classes,
+     lookahead=[letter], no substitutions) rejecting "sunday" ≠ "sun"+…,
+     then a dispatch rule applying LIG at position 0. At a position that
+     survives its guards LIG can only match the guarded word: any longer
+     vocabulary word sharing the prefix would have tripped that word's
+     post-guard. A mixed-case sequence ("sUn") dispatches but matches no
+     ligature and is a no-op.
+  Within a class set the first matching rule wins and guard rules consume
+  the position, which is exactly the precedence this layout relies on.
+  Any partition of words into chunks is correct: lookups scan positions
+  independently and every word carries its own post-guard, so a prefix is
+  suppressed in its own lookup regardless of which chunk holds a compound.
+
+* Words with context-triggered senses ("river bank" → 河岸) additionally
+  get a small format-3 (coverage-based) lookup that runs BEFORE all the
+  default lookups, with its own pre/post guards and one backtrack rule per
+  context form (raw letters, and the context word's ligated composites for
+  robustness), dispatching into a per-word sense LigatureSubst.
 
 Usage:
     python3 scripts/inject-gloss-gsub.py <font.ttf> <gloss-map.json> [output.ttf]
 
-If output.ttf is omitted the input font is overwritten. A .fea file is
-written next to the output for inspection.
+If output.ttf is omitted the input font is overwritten.
 
 Requires: pip3 install fonttools
 """
@@ -53,22 +63,29 @@ import os
 import sys
 
 try:
-    from fontTools.ttLib import TTFont
-    from fontTools.feaLib.builder import addOpenTypeFeatures
+    from fontTools.ttLib import TTFont, newTable
+    from fontTools.ttLib.tables import otTables
+    from fontTools.otlLib.builder import buildLigatureSubstSubtable, buildLookup
 except ImportError:
     print("Error: fonttools not installed. Run: pip3 install fonttools", file=sys.stderr)
     sys.exit(1)
+
+# Words per merged lookup pair; sized so a format-2 subtable's internal
+# 16-bit offsets (class-set offsets + ~50 bytes of rule data per word) stay
+# far below the 64 KB limit.
+MAX_WORDS_PER_LOOKUP = 600
+
+LETTER_CLASS = 1  # class of every letter in backtrack/lookahead ClassDefs
 
 
 def parse_codepoint(cp: str) -> int:
     return int(cp.replace("U+", ""), 16)
 
 
-class GlyphNames:
-    """Codepoint → glyph-name resolution with error tracking."""
-
-    def __init__(self, cmap: dict):
-        self.cmap = cmap
+class GlyphResolver:
+    def __init__(self, font: TTFont):
+        self.cmap = font.getBestCmap()
+        self.glyph_id = font.getReverseGlyphMap()
         self.missing = []
 
     def get(self, cp: int, context: str):
@@ -80,176 +97,288 @@ class GlyphNames:
     def for_char(self, char: str, context: str):
         return self.get(ord(char), context)
 
+    def sequence(self, text: str, context: str):
+        seq = [self.for_char(char, context) for char in text]
+        return None if None in seq else seq
 
-def letter_sequence(names: GlyphNames, text: str, word: str):
-    """Glyph names for each letter of `text`, or None if any is unmapped."""
-    seq = []
-    for char in text:
-        name = names.for_char(char, f"letter '{char}' of {word})")
-        if name is None:
-            return None
-        seq.append(name)
-    return seq
+    def sorted_glyphs(self, names):
+        return sorted(set(names), key=lambda g: self.glyph_id[g])
 
 
-def marked(seq):
-    return " ".join(f"{g}'" for g in seq)
-
-
-def case_class_guard(word: str) -> str:
-    """Marked case-insensitive class sequence for `word`, e.g. "@L_s' @L_u'"."""
-    return " ".join(f"@L_{char}'" for char in word)
-
-
-def context_backtracks(names: GlyphNames, alt: dict, by_word: dict):
-    """All backtrack strings that represent `alt['before']` + space.
-
-    Context lookups run before the merged default lookup, so the preceding
-    word is normally still raw letters; its ligated composites are matched
-    too, for robustness against lookup reordering.
-    """
-    before = alt["before"]
-    space = names.get(0x20, "space")
-    if space is None:
-        return []
-
-    backtracks = []
-    lower_seq = letter_sequence(names, before, before)
-    if lower_seq:
-        first_title = names.for_char(before[0].upper(), before)
-        first = (
-            f"[{lower_seq[0]} {first_title}]" if first_title else lower_seq[0]
-        )
-        raw = " ".join([first] + lower_seq[1:])
-        backtracks.append(f"{raw} {space}")
-
-    entry = by_word.get(before)
-    if entry is not None:
-        lig_forms = []
-        for key in ("lower", "title"):
-            lig = names.get(parse_codepoint(entry[key]), f"{before}.{key}")
-            if lig:
-                lig_forms.append(lig)
-        if lig_forms:
-            backtracks.append(f"[{' '.join(lig_forms)}] {space}")
-
-    return backtracks
-
-
-def build_fea(gloss_map: list, cmap: dict) -> str:
-    names = GlyphNames(cmap)
-    by_word = {entry["word"]: entry for entry in gloss_map}
-
-    letters = []
-    case_classes = []
+def letter_glyphs(res: GlyphResolver):
+    """{letter: [glyph names for x and X]} for letters present in the cmap."""
+    table = {}
     for cp in range(ord("a"), ord("z") + 1):
-        lower = cmap.get(cp)
-        upper = cmap.get(cp - 0x20)
-        pair = [g for g in (lower, upper) if g]
-        letters.extend(pair)
+        pair = [g for g in (res.cmap.get(cp), res.cmap.get(cp - 0x20)) if g]
         if pair:
-            case_classes.append(f"@L_{chr(cp)} = [{' '.join(pair)}];")
+            table[chr(cp)] = pair
+    return table
 
-    lines = [
-        "# Auto-generated GSUB calt rules for the English gloss font",
-        "# Generated by ruby-font-creator/scripts/inject-gloss-gsub.py",
-        "",
-        "languagesystem DFLT dflt;",
-        "languagesystem latn dflt;",
-        "",
-        f"@LETTER = [{' '.join(letters)}];",
-        *case_classes,
-        "",
-    ]
 
-    lookup_names = []
+def make_coverage(res: GlyphResolver, names):
+    cov = otTables.Coverage()
+    cov.glyphs = res.sorted_glyphs(names)
+    return cov
 
-    # 1. Per-word context lookups for alternate senses, before the merged
-    #    default lookup so neighbours are still raw letters.
-    for entry in gloss_map:
-        alternates = entry.get("alternates") or []
-        if not alternates:
-            continue
+
+def make_class_def(mapping):
+    cd = otTables.ClassDef()
+    cd.classDefs = dict(mapping)
+    return cd
+
+
+def subst_record(sequence_index, lookup_index):
+    rec = otTables.SubstLookupRecord()
+    rec.SequenceIndex = sequence_index
+    rec.LookupListIndex = lookup_index
+    return rec
+
+
+def class_rule(backtrack, input_rest, lookahead, records):
+    rule = otTables.ChainSubClassRule()
+    rule.Backtrack = list(backtrack)
+    rule.BacktrackGlyphCount = len(rule.Backtrack)
+    rule.Input = list(input_rest)
+    rule.InputGlyphCount = len(rule.Input) + 1  # includes the class-set glyph
+    rule.LookAhead = list(lookahead)
+    rule.LookAheadGlyphCount = len(rule.LookAhead)
+    rule.SubstLookupRecord = list(records)
+    rule.SubstCount = len(rule.SubstLookupRecord)
+    return rule
+
+
+def build_chunk_lookups(res: GlyphResolver, letters, chunk, lig_lookup_index):
+    """(LigatureSubst lookup, format-2 chain lookup) for one vocabulary chunk."""
+    letter_class = {letter: i + 1 for i, letter in enumerate(sorted(letters))}
+
+    ligatures = {}
+    class_sets = {}  # first-letter class -> [ChainSubClassRule]
+    for entry in chunk:  # already sorted longest-first
         word = entry["word"]
-        variants = []
+        added = False
         for key, text in (("lower", word), ("title", word[0].upper() + word[1:])):
-            seq = letter_sequence(names, text, word)
-            if seq:
-                variants.append((seq, key))
-        if not variants:
-            continue
-
-        rules = [
-            f"    ignore sub @LETTER {case_class_guard(word)};",
-            f"    ignore sub {case_class_guard(word)} @LETTER;",
-        ]
-        n_context_rules = 0
-        for alt in alternates:
-            for backtrack in context_backtracks(names, alt, by_word):
-                for seq, key in variants:
-                    alt_target = names.get(
-                        parse_codepoint(alt[key]), f"{word}.{alt['before']}.{key}"
-                    )
-                    if alt_target:
-                        rules.append(
-                            f"    sub {backtrack} {marked(seq)} by {alt_target};"
-                            f"  # {alt['before']} {word} -> {alt['gloss']}"
-                        )
-                        n_context_rules += 1
-        if not n_context_rules:
-            continue
-
-        lookup_name = f"gloss_ctx_{word}"
-        lines.append(f"lookup {lookup_name} {{")
-        lines.extend(rules)
-        lines.append(f"}} {lookup_name};")
-        lines.append("")
-        lookup_names.append(lookup_name)
-
-    # 2. Default ligatures, sharded into one merged lookup per first letter.
-    shards = {}
-    for entry in sorted(gloss_map, key=lambda e: (-len(e["word"]), e["word"])):
-        word = entry["word"]
-        subs = []
-        for key, text in (("lower", word), ("title", word[0].upper() + word[1:])):
-            seq = letter_sequence(names, text, word)
-            target = names.get(parse_codepoint(entry[key]), f"{word}.{key}")
+            seq = res.sequence(text, word)
+            target = res.get(parse_codepoint(entry[key]), f"{word}.{key}")
             if seq and target:
-                subs.append(f"    sub {marked(seq)} by {target};")
-        if not subs:
+                ligatures[tuple(seq)] = target
+                added = True
+        if not added:
             print(f"Warning: skipping '{word}': glyphs missing", file=sys.stderr)
             continue
-        rules = shards.setdefault(word[0], [])
-        rules.append(f"    ignore sub {case_class_guard(word)} @LETTER;")
-        rules.extend(subs)
-
-    for letter in sorted(shards):
-        lookup_name = f"gloss_words_{letter}"
-        lines.append(f"lookup {lookup_name} {{")
-        # Global pre-guard: only word-start positions (not preceded by a
-        # letter) are ever considered; interior positions are consumed here.
-        lines.append("    ignore sub @LETTER @LETTER';")
-        lines.extend(shards[letter])
-        lines.append(f"}} {lookup_name};")
-        lines.append("")
-        lookup_names.append(lookup_name)
-
-    if not lookup_names:
-        return ""
-
-    lines.append("feature calt {")
-    for name in lookup_names:
-        lines.append(f"  lookup {name};")
-    lines.append("} calt;")
-    lines.append("")
-
-    if names.missing:
-        print(
-            "Warning: unmapped codepoints: " + ", ".join(sorted(set(names.missing))),
-            file=sys.stderr,
+        classes = [letter_class[char] for char in word]
+        rules = class_sets.setdefault(classes[0], [])
+        # Post-guard: word followed by another letter never ligates.
+        rules.append(class_rule([], classes[1:], [LETTER_CLASS], []))
+        rules.append(
+            class_rule([], classes[1:], [], [subst_record(0, lig_lookup_index)])
         )
 
-    return "\n".join(lines)
+    subtable = otTables.ChainContextSubst()
+    subtable.Format = 2
+    all_letter_glyphs = [g for pair in letters.values() for g in pair]
+    subtable.Coverage = make_coverage(res, all_letter_glyphs)
+    subtable.InputClassDef = make_class_def(
+        (g, letter_class[letter])
+        for letter, pair in letters.items()
+        for g in pair
+    )
+    any_letter = make_class_def((g, LETTER_CLASS) for g in all_letter_glyphs)
+    subtable.BacktrackClassDef = any_letter
+    subtable.LookAheadClassDef = make_class_def(any_letter.classDefs)
+
+    n_classes = len(letter_class) + 1
+    sets = []
+    for class_index in range(n_classes):
+        rules = class_sets.get(class_index)
+        if rules is None:
+            sets.append(None)
+            continue
+        # Pre-guard first: any letter preceded by a letter is consumed, so
+        # only word-start positions reach the per-word rules.
+        cs = otTables.ChainSubClassSet()
+        cs.ChainSubClassRule = [class_rule([LETTER_CLASS], [], [], [])] + rules
+        cs.ChainSubClassRuleCount = len(cs.ChainSubClassRule)
+        sets.append(cs)
+    subtable.ChainSubClassSet = sets
+    subtable.ChainSubClassSetCount = len(sets)
+
+    lig = buildLookup([buildLigatureSubstSubtable(ligatures)])
+    chain = buildLookup([subtable])
+    return lig, chain
+
+
+def context_rule(res, backtrack_covs, input_covs, lookahead_covs, records):
+    rule = otTables.ChainContextSubst()
+    rule.Format = 3
+    # Binary order for backtrack coverages is closest-glyph-first.
+    rule.BacktrackCoverage = list(backtrack_covs)
+    rule.BacktrackGlyphCount = len(rule.BacktrackCoverage)
+    rule.InputCoverage = list(input_covs)
+    rule.InputGlyphCount = len(rule.InputCoverage)
+    rule.LookAheadCoverage = list(lookahead_covs)
+    rule.LookAheadGlyphCount = len(rule.LookAheadCoverage)
+    rule.SubstLookupRecord = list(records)
+    rule.SubstCount = len(rule.SubstLookupRecord)
+    return rule
+
+
+def build_context_lookups(res, letters, entry, by_word, lig_lookup_index):
+    """(sense LigatureSubst lookup, format-3 chain lookup) for one word."""
+    word = entry["word"]
+    all_letter_glyphs = [g for pair in letters.values() for g in pair]
+    letter_cov = make_coverage(res, all_letter_glyphs)
+
+    def word_input_covs():
+        covs = []
+        for index, char in enumerate(word):
+            names = list(letters.get(char, []))
+            if index > 0:
+                # Only the first letter varies by case in title form.
+                names = [res.for_char(char, word)]
+            if not names or None in names:
+                return None
+            covs.append(make_coverage(res, names))
+        return covs
+
+    input_covs = word_input_covs()
+    if input_covs is None:
+        return None
+
+    ligatures = {}
+    rules = [
+        # Post- and pre-guards, mirroring the default lookups.
+        context_rule(res, [], input_covs, [letter_cov], []),
+        context_rule(res, [letter_cov], input_covs, [], []),
+    ]
+    space = res.get(0x20, "space")
+    for alt in entry.get("alternates") or []:
+        targets = {}
+        for key, text in (("lower", word), ("title", word[0].upper() + word[1:])):
+            seq = res.sequence(text, word)
+            target = res.get(
+                parse_codepoint(alt[key]), f"{word}.{alt['before']}.{key}"
+            )
+            if seq and target:
+                targets[tuple(seq)] = target
+        if not targets or space is None:
+            continue
+        ligatures.update(targets)
+
+        before = alt["before"]
+        backtracks = []
+        raw = res.sequence(before, before)
+        if raw is not None:
+            # Closest-first: space, then the context word's letters reversed;
+            # its first letter (farthest) accepts both cases.
+            covs = [make_coverage(res, [space])]
+            for char in reversed(before[1:]):
+                covs.append(make_coverage(res, [res.for_char(char, before)]))
+            covs.append(make_coverage(res, letters.get(before[0], raw[:1])))
+            backtracks.append(covs)
+        ctx_entry = by_word.get(before)
+        if ctx_entry is not None:
+            lig_forms = [
+                res.get(parse_codepoint(ctx_entry[key]), f"{before}.{key}")
+                for key in ("lower", "title")
+            ]
+            lig_forms = [g for g in lig_forms if g]
+            if lig_forms:
+                backtracks.append(
+                    [make_coverage(res, [space]), make_coverage(res, lig_forms)]
+                )
+        for covs in backtracks:
+            rules.append(
+                context_rule(
+                    res, covs, input_covs, [], [subst_record(0, lig_lookup_index)]
+                )
+            )
+
+    if not ligatures:
+        return None
+    lig = buildLookup([buildLigatureSubstSubtable(ligatures)])
+    chain = buildLookup(rules)
+    return lig, chain
+
+
+def build_gsub(font: TTFont, gloss_map: list):
+    res = GlyphResolver(font)
+    letters = letter_glyphs(res)
+    by_word = {entry["word"]: entry for entry in gloss_map}
+
+    lookups = []
+    calt_lookup_indices = []
+
+    # 1. Context-sense lookups run before every default lookup, while the
+    #    neighbouring words are still raw letter glyphs.
+    n_context = 0
+    for entry in gloss_map:
+        if not entry.get("alternates"):
+            continue
+        built = build_context_lookups(res, letters, entry, by_word, len(lookups))
+        if built is None:
+            continue
+        lig, chain = built
+        lookups.append(lig)  # index len(lookups)-1 == lig_lookup_index passed
+        lookups.append(chain)
+        calt_lookup_indices.append(len(lookups) - 1)
+        n_context += 1
+
+    # 2. Default ligatures in fixed-size chunks, longest word first.
+    sorted_entries = sorted(gloss_map, key=lambda e: (-len(e["word"]), e["word"]))
+    for start in range(0, len(sorted_entries), MAX_WORDS_PER_LOOKUP):
+        chunk = sorted_entries[start : start + MAX_WORDS_PER_LOOKUP]
+        lig, chain = build_chunk_lookups(res, letters, chunk, len(lookups))
+        lookups.append(lig)
+        lookups.append(chain)
+        calt_lookup_indices.append(len(lookups) - 1)
+
+    if res.missing:
+        print(
+            "Warning: unmapped codepoints: " + ", ".join(sorted(set(res.missing))),
+            file=sys.stderr,
+        )
+    if not calt_lookup_indices:
+        return None, 0, 0
+
+    gsub = otTables.GSUB()
+    gsub.Version = 0x00010000
+
+    gsub.LookupList = otTables.LookupList()
+    gsub.LookupList.Lookup = lookups
+    gsub.LookupList.LookupCount = len(lookups)
+
+    feature = otTables.Feature()
+    feature.FeatureParams = None
+    feature.LookupListIndex = calt_lookup_indices
+    feature.LookupCount = len(calt_lookup_indices)
+    feature_record = otTables.FeatureRecord()
+    feature_record.FeatureTag = "calt"
+    feature_record.Feature = feature
+    gsub.FeatureList = otTables.FeatureList()
+    gsub.FeatureList.FeatureRecord = [feature_record]
+    gsub.FeatureList.FeatureCount = 1
+
+    gsub.ScriptList = otTables.ScriptList()
+    gsub.ScriptList.ScriptRecord = []
+    for tag in ("DFLT", "latn"):
+        lang_sys = otTables.DefaultLangSys()
+        lang_sys.LookupOrder = None
+        lang_sys.ReqFeatureIndex = 0xFFFF
+        lang_sys.FeatureIndex = [0]
+        lang_sys.FeatureCount = 1
+        script = otTables.Script()
+        script.DefaultLangSys = lang_sys
+        script.LangSysRecord = []
+        script.LangSysCount = 0
+        record = otTables.ScriptRecord()
+        record.ScriptTag = tag
+        record.Script = script
+        gsub.ScriptList.ScriptRecord.append(record)
+    gsub.ScriptList.ScriptCount = len(gsub.ScriptList.ScriptRecord)
+
+    table = newTable("GSUB")
+    table.table = gsub
+    return table, n_context, len(lookups)
 
 
 def main() -> None:
@@ -268,24 +397,21 @@ def main() -> None:
         gloss_map = json.load(f)
 
     font = TTFont(font_path)
-    cmap = font.getBestCmap()
-    if not cmap:
+    if not font.getBestCmap():
         print("Error: no cmap found in font", file=sys.stderr)
         sys.exit(1)
 
-    fea_content = build_fea(gloss_map, cmap)
-    if not fea_content:
+    gsub, n_context, n_lookups = build_gsub(font, gloss_map)
+    if gsub is None:
         print("No GSUB rules generated — nothing to inject.", file=sys.stderr)
         sys.exit(0)
 
-    fea_path = os.path.splitext(output_path)[0] + ".fea"
-    with open(fea_path, "w", encoding="utf-8") as f:
-        f.write(fea_content)
-    print(f"wrote: {fea_path}")
-
-    addOpenTypeFeatures(font, fea_path)
+    font["GSUB"] = gsub
     font.save(output_path)
-    print(f"wrote: {output_path} (with GSUB calt)")
+    print(
+        f"wrote: {output_path} (GSUB calt: {len(gloss_map)} words, "
+        f"{n_context} context-sense words, {n_lookups} lookups)"
+    )
 
     try:
         woff2_path = os.path.splitext(output_path)[0] + ".woff2"

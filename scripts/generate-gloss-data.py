@@ -3,10 +3,12 @@
 Generate src/gloss-generated.json — the bulk English → Chinese vocabulary for
 the English gloss font — from ECDICT (github.com/skywind3000/ECDICT, MIT).
 
-Selection: entries tagged `zk` (中考, China's grade-9 exam list) or `gk`
-(高考, high school) — together a good approximation of a 9th-grade English
-reading vocabulary — expanded with their inflected forms from ECDICT's
-`exchange` field (GSUB cannot stem, so every surface form needs an entry).
+Selection: entries tagged `zk` (中考, China's grade-9 exam list), `gk`
+(高考, high school), or `cet4` (college band 4 — needed because everyday
+words like "solution" and "community" carry only that tag). Together these
+approximate a 9th-grade English reading vocabulary, expanded with their
+inflected forms from ECDICT's `exchange` field (GSUB cannot stem, so every
+surface form needs an entry).
 
 Gloss extraction from the `translation` field: take the first sense line,
 strip the part-of-speech prefix, split on Chinese/ASCII separators, and keep
@@ -42,7 +44,7 @@ ECDICT_URL = (
     'https://raw.githubusercontent.com/skywind3000/ECDICT/master/ecdict.csv'
 )
 
-GRADE_TAGS = {'zk', 'gk'}
+GRADE_TAGS = {'zk', 'gk', 'cet4'}
 MAX_GLOSS_LEN = 6
 WORD_RE = re.compile(r'^[a-z]{2,20}$')
 HAN_RE = re.compile(r'^[㐀-䶿一-鿿]+$')
